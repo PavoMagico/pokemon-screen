@@ -2,6 +2,19 @@
   "expo": {
     "name": "pokemon-screen",
     "slug": "pokemon-screen",
-    "version": "1.0.0"
+    "version": "1.0.0",
+    "icon": "./assets/images/totodile_icon.png",
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/totodile_icon.png",
+        "backgroundColor": "#0f172a"
+      },
+      "package": "com.pokemonscreen"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "7dca8779-55a6-48cc-b1f3-948b35bf6202"
+      }
+    }
   }
 }

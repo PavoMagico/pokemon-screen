@@ -1,14 +1,100 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Dimensions, NativeModules, ScrollView, SafeAreaView, Image, FlatList, Platform, PermissionsAndroid } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, Dimensions, NativeModules, ScrollView, SafeAreaView, Image, FlatList, SectionList } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
 const { PokemonModule } = NativeModules;
 
 const POKE_IDS: { [key: string]: number } = {
-  // Gen 1
+  // Gen 1 (Kanto)
   bulbasaur: 1, ivysaur: 2, venusaur: 3, charmander: 4, charmeleon: 5, charizard: 6, squirtle: 7, wartortle: 8, blastoise: 9, caterpie: 10, metapod: 11, butterfree: 12, weedle: 13, kakuna: 14, beedrill: 15, pidgey: 16, pidgeotto: 17, pidgeot: 18, rattata: 19, raticate: 20, spearow: 21, fearow: 22, ekans: 23, arbok: 24, pikachu: 25, raichu: 26, sandshrew: 27, sandslash: 28, nidoran_f: 29, nidorina: 30, nidoqueen: 31, nidoran_m: 32, nidorino: 33, nidoking: 34, clefairy: 35, clefable: 36, vulpix: 37, ninetales: 38, jigglypuff: 39, wigglytuff: 40, zubat: 41, golbat: 42, oddish: 43, gloom: 44, vileplume: 45, paras: 46, parasect: 47, venonat: 48, venomoth: 49, diglett: 50, dugtrio: 51, meowth: 52, persian: 53, psyduck: 54, golduck: 55, mankey: 56, primeape: 57, growlithe: 58, arcanine: 59, poliwag: 60, poliwhirl: 61, poliwrath: 62, abra: 63, kadabra: 64, alakazam: 65, machop: 66, machoke: 67, machamp: 68, bellsprout: 69, weepinbell: 70, victreebel: 71, tentacool: 72, tentacruel: 73, geodude: 74, graveler: 75, golem: 76, ponyta: 77, rapidash: 78, slowpoke: 79, slowbro: 80, magnemite: 81, magneton: 82, farfetchd: 83, doduo: 84, dodrio: 85, seel: 86, dewgong: 87, grimer: 88, muk: 89, shellder: 90, cloyster: 91, gastly: 92, haunter: 93, gengar: 94, onix: 95, drowzee: 96, hypno: 97, krabby: 98, kingler: 99, voltorb: 100, electrode: 101, exeggcute: 102, exeggutor: 103, cubone: 104, marowak: 105, hitmonlee: 106, hitmonchan: 107, lickitung: 108, koffing: 109, weezing: 110, rhyhorn: 111, rhydon: 112, chansey: 113, tangela: 114, kangaskhan: 115, horsea: 116, seadra: 117, goldeen: 118, seaking: 119, staryu: 120, starmie: 121, mr_mime: 122, scyther: 123, jynx: 124, electabuzz: 125, magmar: 126, pinsir: 127, tauros: 128, magikarp: 129, gyarados: 130, lapras: 131, ditto: 132, eevee: 133, vaporeon: 134, jolteon: 135, flareon: 136, porygon: 137, omanyte: 138, omastar: 139, kabuto: 140, kabutops: 141, aerodactyl: 142, snorlax: 143, articuno: 144, zapdos: 145, moltres: 146, dratini: 147, dragonair: 148, dragonite: 149, mewtwo: 150, mew: 151,
-  // Gen 2
-  chikorita: 152, bayleef: 153, meganium: 154, cyndaquil: 155, quilava: 156, typhlosion: 157, totodile: 158, croconaw: 159, feraligatr: 160, sentret: 161, furret: 162, hoothoot: 163, noctowl: 164, ledyba: 165, ledian: 166, spinarak: 167, ariados: 168, crobat: 169, chinchou: 170, lanturn: 171, pichu: 172, cleffa: 173, igglybuff: 174, togepi: 175, togetic: 176, natu: 177, xatu: 178, mareep: 179, flaaffy: 180, ampharos: 181, bellossom: 182, marill: 183, azumarill: 184, sudowoodo: 185, politoed: 186, hoppip: 187, skiploom: 188, jumpluff: 189, aipom: 190, sunkern: 191, sunflora: 192, yanma: 193, wooper: 194, quagsire: 195, espeon: 196, umbreon: 197, murkrow: 198, slowking: 199, misdreavus: 200, unown: 201, wobbuffet: 202, girafarig: 203, pineco: 204, forretress: 205, dunsparce: 206, gligar: 207, steelix: 208, snubbull: 209, granbull: 210, qwilfish: 211, scizor: 212, shuckle: 213, heracross: 214, sneasel: 215, teddiursa: 216, ursaring: 217, slugma: 218, magcargo: 219, swinub: 220, piloswine: 221, corsola: 222, remoraid: 223, octillery: 224, delibird: 225, mantine: 226, skarmory: 227, houndour: 228, houndoom: 229, kingdra: 230, phanpy: 231, donphan: 232, porygon2: 233, stantler: 234, smeargle: 235, tyrogue: 236, hitmontop: 237, smoochum: 238, elekid: 239, magby: 240, miltank: 241, blissey: 242, raikou: 243, entei: 244, suicune: 245, larvitar: 246, pupitar: 247, tyranitar: 248, lugia: 249, ho_oh: 250, celebi: 251, mamoswine: 473, togekiss: 468
+  // Gen 2 (Johto)
+  chikorita: 152, bayleef: 153, meganium: 154, cyndaquil: 155, quilava: 156, typhlosion: 157, totodile: 158, croconaw: 159, feraligatr: 160, sentret: 161, furret: 162, hoothoot: 163, noctowl: 164, ledyba: 165, ledian: 166, spinarak: 167, ariados: 168, crobat: 169, chinchou: 170, lanturn: 171, pichu: 172, cleffa: 173, igglybuff: 174, togepi: 175, togetic: 176, natu: 177, xatu: 178, mareep: 179, flaaffy: 180, ampharos: 181, bellossom: 182, marill: 183, azumarill: 184, sudowoodo: 185, politoed: 186, hoppip: 187, skiploom: 188, jumpluff: 189, aipom: 190, sunkern: 191, sunflora: 192, yanma: 193, wooper: 194, quagsire: 195, espeon: 196, umbreon: 197, murkrow: 198, slowking: 199, misdreavus: 200, unown: 201, wobbuffet: 202, girafarig: 203, pineco: 204, forretress: 205, dunsparce: 206, gligar: 207, steelix: 208, snubbull: 209, granbull: 210, qwilfish: 211, scizor: 212, shuckle: 213, heracross: 214, sneasel: 215, teddiursa: 216, ursaring: 217, slugma: 218, magcargo: 219, swinub: 220, piloswine: 221, corsola: 222, remoraid: 223, octillery: 224, delibird: 225, mantine: 226, skarmory: 227, houndour: 228, houndoom: 229, kingdra: 230, phanpy: 231, donphan: 232, porygon2: 233, stantler: 234, smeargle: 235, tyrogue: 236, hitmontop: 237, smoochum: 238, elekid: 239, magby: 240, miltank: 241, blissey: 242, raikou: 243, entei: 244, suicune: 245, larvitar: 246, pupitar: 247, tyranitar: 248, lugia: 249, ho_oh: 250, celebi: 251,
+  // Gen 3 (Hoenn)
+  treecko: 252, grovyle: 253, sceptile: 254, torchic: 255, combusken: 256, blaziken: 257, mudkip: 258, marshtomp: 259, swampert: 260, poochyena: 261, mightyena: 262, zigzagoon: 263, linoone: 264, wurmple: 265, silcoon: 266, beautifly: 267, cascoon: 268, dustox: 269, lotad: 270, lombre: 271, ludicolo: 272, seedot: 273, nuzleaf: 274, shiftry: 275, taillow: 276, swellow: 277, wingull: 278, pelipper: 279, ralts: 280, kirlia: 281, gardevoir: 282, surskit: 283, masquerain: 284, shroomish: 285, breloom: 286, slakoth: 287, vigoroth: 288, slaking: 289, nincada: 290, ninjask: 291, shedinja: 292, whismur: 293, loudred: 294, exploud: 295, makuhita: 296, hariyama: 297, azurill: 298, nosepass: 299, skitty: 300, delcatty: 301, sableye: 302, mawile: 303, aron: 304, lairon: 305, aggron: 306, meditite: 307, medicham: 308, electrike: 309, manectric: 310, plusle: 311, minun: 312, volbeat: 313, illumise: 314, roselia: 315, gulpin: 316, swalot: 317, carvanha: 318, sharpedo: 319, wailmer: 320, wailord: 321, numel: 322, camerupt: 323, torkoal: 324, spoink: 325, grumpig: 326, spinda: 327, trapinch: 328, vibrava: 329, flygon: 330, cacnea: 331, cacturne: 332, swablu: 333, altaria: 334, zangoose: 335, seviper: 336, lunatone: 337, solrock: 338, barboach: 339, whiscash: 340, corphish: 341, crawdaunt: 342, baltoy: 343, claydol: 344, lileep: 345, cradily: 346, anorith: 347, armaldo: 348, feebas: 349, milotic: 350, castform: 351, kecleon: 352, shuppet: 353, banette: 354, duskull: 355, dusclops: 356, tropius: 357, chimecho: 358, absol: 359, wynaut: 360, snorunt: 361, glalie: 362, spheal: 363, sealeo: 364, walrein: 365, clamperl: 366, huntail: 367, gorebyss: 368, relicanth: 369, luvdisc: 370, bagon: 371, shelgon: 372, salamence: 373, beldum: 374, metang: 375, metagross: 376, regirock: 377, regice: 378, registeel: 379, latias: 380, latios: 381, kyogre: 382, groudon: 383, rayquaza: 384, jirachi: 385, deoxys: 386,
+};
+
+const ITEM_ICONS: { [key: string]: any } = {
+    'Fire Stone': { uri: 'fire_stone' },
+    'Water Stone': { uri: 'water_stone' },
+    'Thunder Stone': { uri: 'thunder_stone' },
+    'Leaf Stone': { uri: 'leaf_stone' },
+    'Moon Stone': { uri: 'moon_stone' },
+    'Sun Stone': { uri: 'sun_stone' },
+    'Metal Coat': { uri: 'metal_coat' },
+    "King's Rock": { uri: 'kings_rock' },
+    'Dragon Scale': { uri: 'dragon_scale' },
+    'Egg': { uri: 'pokemon_egg' }
+};
+
+const I18N: any = {
+  en: {
+    title: "POKÉMON SCREEN",
+    candies: "CANDIES",
+    steps: "STEPS",
+    partner: "CURRENT PARTNER",
+    egg: "EGG",
+    no_partner: "NO PARTNER",
+    get_egg: "Shop below!",
+    buy_egg: "RANDOM EGG",
+    buy_desc: "30 🍬",
+    buy_regional: "%s EGG",
+    regional_desc: "60 🍬",
+    level_up: "LEVEL UP",
+    evolve: "EVOLVE!",
+    owned: "OWNED",
+    locked: "LOCKED",
+    max: "MAX",
+    re_summon: "RE-SUMMON",
+    tabs: { eggs: "EGGS", pokemon: "MY POKÉMON", pokedex: "POKÉDEX" },
+    empty_eggs: "No eggs yet!",
+    empty_pokemon: "No Pokémon yet!",
+    regions: { kanto: "KANTO", johto: "JOHTO", hoenn: "HOENN" },
+    items: {
+        'Fire Stone': 'Fire Stone',
+        'Water Stone': 'Water Stone',
+        'Thunder Stone': 'Thunder Stone',
+        'Leaf Stone': 'Leaf Stone',
+        'Moon Stone': 'Moon Stone',
+        'Sun Stone': 'Sun Stone',
+        'Metal Coat': 'Metal Coat',
+        "King's Rock": "King's Rock",
+        'Dragon Scale': 'Dragon Scale'
+    }
+  },
+  es: {
+    title: "POKÉMON SCREEN",
+    candies: "CARAMELOS",
+    steps: "PASOS",
+    partner: "COMPAÑERO ACTUAL",
+    egg: "HUEVO",
+    no_partner: "SIN COMPAÑERO",
+    get_egg: "¡Compra en la tienda!",
+    buy_egg: "HUEVO ALEATORIO",
+    buy_desc: "30 🍬",
+    buy_regional: "HUEVO %s",
+    regional_desc: "60 🍬",
+    level_up: "SUBIR NIVEL",
+    evolve: "¡EVOLUCIONAR!",
+    owned: "OBTENIDO",
+    locked: "BLOQUEADO",
+    max: "NIVEL MÁX",
+    re_summon: "RE-INVOCAR",
+    tabs: { eggs: "HUEVOS", pokemon: "MIS POKÉMON", pokedex: "POKÉDEX" },
+    empty_eggs: "¡No tienes huevos!",
+    empty_pokemon: "¡No tienes Pokémon!",
+    regions: { kanto: "KANTO", johto: "JOHTO", hoenn: "HOENN" },
+    items: {
+        'Fire Stone': 'Piedra Fuego',
+        'Water Stone': 'Piedra Agua',
+        'Thunder Stone': 'Piedra Trueno',
+        'Leaf Stone': 'Piedra Hoja',
+        'Moon Stone': 'Piedra Lunar',
+        'Sun Stone': 'Piedra Solar',
+        'Metal Coat': 'Revest. Metálico',
+        "King's Rock": "Roca del Rey",
+        'Dragon Scale': 'Escama Dragón'
+    }
+  }
 };
 
 const EVO_MAP: { [key: string]: { next: string, level?: number, item?: string } } = {
@@ -61,12 +147,36 @@ const EVO_MAP: { [key: string]: { next: string, level?: number, item?: string } 
   swinub: { next: 'piloswine', level: 33 }, remoraid: { next: 'octillery', level: 25 },
   houndour: { next: 'houndoom', level: 24 }, phanpy: { next: 'donphan', level: 25 },
   larvitar: { next: 'pupitar', level: 30 }, pupitar: { next: 'tyranitar', level: 55 },
-  // Item-specific evolutions
   onix: { next: 'steelix', item: 'Metal Coat' },
   scyther: { next: 'scizor', item: 'Metal Coat' },
   slowbro: { next: 'slowking', item: "King's Rock" },
   seadra: { next: 'kingdra', item: 'Dragon Scale' },
-  poliwhirl_2: { next: 'politoed', item: "King's Rock" }, // Special handling if needed
+  treecko: { next: 'grovyle', level: 16 }, grovyle: { next: 'sceptile', level: 36 },
+  torchic: { next: 'combusken', level: 16 }, combusken: { next: 'blaziken', level: 36 },
+  mudkip: { next: 'marshtomp', level: 16 }, marshtomp: { next: 'swampert', level: 36 },
+  poochyena: { next: 'mightyena', level: 18 }, zigzagoon: { next: 'linoone', level: 20 },
+  wurmple: { next: 'silcoon', level: 7 }, silcoon: { next: 'beautifly', level: 10 },
+  lotad: { next: 'lombre', level: 14 }, lombre: { next: 'ludicolo', item: 'Water Stone' },
+  seedot: { next: 'nuzleaf', level: 14 }, nuzleaf: { next: 'shiftry', item: 'Leaf Stone' },
+  taillow: { next: 'swellow', level: 22 }, wingull: { next: 'pelipper', level: 25 },
+  ralts: { next: 'kirlia', level: 20 }, kirlia: { next: 'gardevoir', level: 30 },
+  surskit: { next: 'masquerain', level: 22 }, shroomish: { next: 'breloom', level: 23 },
+  slakoth: { next: 'vigoroth', level: 18 }, vigoroth: { next: 'slaking', level: 36 },
+  nincada: { next: 'ninjask', level: 20 }, whismur: { next: 'loudred', level: 20 },
+  loudred: { next: 'exploud', level: 40 }, makuhita: { next: 'hariyama', level: 24 },
+  skitty: { next: 'delcatty', item: 'Moon Stone' }, aron: { next: 'lairon', level: 32 },
+  lairon: { next: 'aggron', level: 42 }, meditite: { next: 'medicham', level: 37 },
+  electrike: { next: 'manectric', level: 26 }, gulpin: { next: 'swalot', level: 26 },
+  carvanha: { next: 'sharpedo', level: 30 }, wailmer: { next: 'wailord', level: 40 },
+  numel: { next: 'camerupt', level: 33 }, trapinch: { next: 'vibrava', level: 35 },
+  vibrava: { next: 'flygon', level: 45 }, cacnea: { next: 'cacturne', level: 32 },
+  swablu: { next: 'altaria', level: 35 }, barboach: { next: 'whiscash', level: 30 },
+  corphish: { next: 'crawdaunt', level: 30 }, baltoy: { next: 'claydol', level: 36 },
+  lileep: { next: 'cradily', level: 40 }, anorith: { next: 'armaldo', level: 40 },
+  shuppet: { next: 'banette', level: 37 }, duskull: { next: 'dusclops', level: 37 },
+  spheal: { next: 'sealeo', level: 32 }, sealeo: { next: 'walrein', level: 44 },
+  bagon: { next: 'shelgon', level: 30 }, shelgon: { next: 'salamence', level: 50 },
+  beldum: { next: 'metang', level: 20 }, metang: { next: 'metagross', level: 45 },
 };
 
 const ITEMS = [
@@ -81,35 +191,186 @@ const ITEMS = [
   { name: 'Dragon Scale', cost: 30 },
 ];
 
-const STARTERS = ['bulbasaur', 'charmander', 'squirtle', 'chikorita', 'cyndaquil', 'totodile'];
-const COMMON = ['pidgey', 'rattata', 'zubat', 'caterpie', 'weedle', 'pikachu', 'eevee', 'onix', 'scyther', 'magikarp', 'abra', 'machop', 'geodude', 'gastly', 'dratini', 'chansey', 'horsea', 'sentret', 'hoothoot', 'ledyba', 'spinarak', 'mareep', 'marill', 'hoppip', 'aipom', 'sunkern', 'yanma', 'wooper', 'murkrow', 'misdreavus', 'unown', 'girafarig', 'pineco', 'dunsparce', 'gligar', 'snubbull', 'qwilfish', 'shuckle', 'heracross', 'sneasel', 'teddiursa', 'slugma', 'swinub', 'corsola', 'remoraid', 'delibird', 'mantine', 'skarmory', 'houndour', 'phanpy', 'stantler', 'smeargle', 'tyrogue', 'smoochum', 'elekid', 'magby', 'miltank', 'larvitar'];
-const LEGENDARY = ['articuno', 'zapdos', 'moltres', 'mewtwo', 'mew', 'raikou', 'entei', 'suicune', 'lugia', 'ho_oh', 'celebi'];
+const ALL_POKEMON_LIST = Object.keys(POKE_IDS).sort((a, b) => POKE_IDS[a] - POKE_IDS[b]);
+const KANTO = ALL_POKEMON_LIST.filter(p => POKE_IDS[p] <= 151);
+const JOHTO = ALL_POKEMON_LIST.filter(p => POKE_IDS[p] > 151 && POKE_IDS[p] <= 251);
+const HOENN = ALL_POKEMON_LIST.filter(p => POKE_IDS[p] > 251 && POKE_IDS[p] <= 386);
 
-// Ordenar todos los Pokémon por su ID de Pokedex Nacional
-const ALL_POKEMON = Object.keys(POKE_IDS)
-  .sort((a, b) => POKE_IDS[a] - POKE_IDS[b])
-  .filter(name => POKE_IDS[name] <= 251); // Solo Gen 1 y 2 para el grid principal
-
-const normalizeName = (name: string) => name.toLowerCase().replace('-', '_');
+const LEGENDARY = ['articuno', 'zapdos', 'moltres', 'mewtwo', 'mew', 'raikou', 'entei', 'suicune', 'lugia', 'ho_oh', 'celebi', 'regirock', 'regice', 'registeel', 'latias', 'latios', 'kyogre', 'groudon', 'rayquaza', 'jirachi', 'deoxys'];
 
 const getIconUri = (name: string) => {
+  if (!name) return "";
   const id = POKE_IDS[name.toLowerCase()] || 158;
   return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-vii/icons/${id}.png`;
 };
 
-const PokemonGridItem = React.memo(({ item, isOwned, isSelected, onPress }: { item: string; isOwned: boolean; isSelected: boolean; onPress: (name: string) => void }) => (
-  <TouchableOpacity onPress={() => onPress(item)} style={[styles.gridItem, isSelected && styles.selectedItem]}>
-    <Image source={{ uri: getIconUri(item) }} style={[styles.gridIcon, !isOwned && { opacity: 0.15, tintColor: '#fff' }]} resizeMode="contain" />
-  </TouchableOpacity>
+const PokemonGridItem = React.memo(({ item, isOwned, isSelected, onPress, isEgg }: { item: string | any; isOwned: boolean; isSelected: boolean; onPress: (name: string) => void; isEgg?: boolean }) => {
+  const name = typeof item === 'string' ? item : item?.species;
+  if (!name) return null;
+  const displayName = isEgg ? "EGG" : (isOwned ? name.toUpperCase() : "???");
+
+  return (
+    <TouchableOpacity onPress={() => onPress(name)} style={[styles.gridItem, isSelected && styles.selectedItem]} disabled={!isOwned && !isEgg}>
+      {isEgg ? (
+        <Image source={ITEM_ICONS['Egg']} style={styles.eggIcon} resizeMode="contain" />
+      ) : (
+        <Image
+            source={{ uri: getIconUri(name) }}
+            style={[styles.gridIcon, !isOwned && { opacity: 0.1, tintColor: '#000' }]}
+            resizeMode="contain"
+        />
+      )}
+      <Text style={styles.gridName} numberOfLines={1}>{displayName}</Text>
+    </TouchableOpacity>
+  );
+});
+
+const ItemShop = React.memo(({ candies, onBuy, t }: { candies: number, onBuy: (item: any) => void, t: any }) => (
+    <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.itemShop}
+        contentContainerStyle={{ paddingRight: 20 }}
+    >
+        {ITEMS.map((item) => (
+            <TouchableOpacity key={item.name} style={styles.itemBtn} onPress={() => onBuy(item)}>
+                <Image source={ITEM_ICONS[item.name]} style={styles.shopItemIcon} resizeMode="contain" />
+                <Text style={styles.itemBtnTitle}>{t.items[item.name] || item.name}</Text>
+                <Text style={styles.itemBtnCost}>{item.cost} 🍬</Text>
+            </TouchableOpacity>
+        ))}
+    </ScrollView>
 ));
 
+const HeaderContent = React.memo(({
+    stats, buyEgg, buyItem, levelUp, handleEvolve, activeTab, setActiveTab, canEvolve, alreadyHasEvo, evoInfo, lang, setLang, t,
+    canShowShinyToggle, showShinies, setShowShinies
+}: any) => {
+    if (!t) return null;
+    return (
+        <View>
+            <View style={styles.header}>
+                <View style={styles.topRow}>
+                    <Text style={styles.title}>{t.title || 'POKÉMON'}</Text>
+                    <TouchableOpacity onPress={() => setLang(lang === 'en' ? 'es' : 'en')} style={styles.langBtn}>
+                        <Text style={styles.langText}>{lang?.toUpperCase()}</Text>
+                    </TouchableOpacity>
+                </View>
+                <View style={styles.statsRow}>
+                    <View style={styles.statBox}><Text style={styles.statValue}>{stats.candies || 0}</Text><Text style={styles.statLabel}>{t.candies}</Text></View>
+                    <View style={styles.statBox}><Text style={styles.statValue}>{stats.steps || 0}</Text><Text style={styles.statLabel}>{t.steps}</Text></View>
+                </View>
+            </View>
+
+            {stats.selectedPokemon ? (
+                <View style={styles.currentCard}>
+                    <Text style={styles.cardTitle}>{t.partner}</Text>
+                    {!stats.isHatched ? (
+                        <Image source={ITEM_ICONS['Egg']} style={styles.mainEggIcon} resizeMode="contain" />
+                    ) : (
+                        <Image source={{ uri: getIconUri(stats.selectedPokemon) }} style={styles.mainPokemonIcon} />
+                    )}
+                    <Text style={styles.pokemonName}>{stats.isHatched ? stats.selectedPokemon.toUpperCase() : t.egg}</Text>
+                    <View style={styles.infoRow}>
+                        <Text style={styles.levelText}>LV. {stats.level}</Text>
+                        <TouchableOpacity onPress={() => PokemonModule.summon()} style={styles.summonBtn}><Text style={styles.summonBtnText}>{t.re_summon}</Text></TouchableOpacity>
+                    </View>
+                    {evoInfo && stats.isHatched && (
+                        <Text style={styles.evoRequirement}>
+                            {alreadyHasEvo ? t.owned :
+                            `${evoInfo.level ? `LV. ${evoInfo.level}` : ''}${evoInfo.level && evoInfo.item ? ' + ' : ''}${evoInfo.item ? (t.items[evoInfo.item] || evoInfo.item) : ''}`}
+                        </Text>
+                    )}
+                    <View style={styles.progressBarBg}><View style={[styles.progressBarFill, { width: `${Math.min(100, (stats.steps % 100))}%` }]} /></View>
+                </View>
+            ) : (
+                <View style={[styles.currentCard, { paddingVertical: 40 }]}>
+                    <Text style={styles.pokemonName}>{t.no_partner}</Text>
+                    <Text style={styles.evoRequirement}>{t.get_egg}</Text>
+                </View>
+            )}
+
+            <View style={styles.shopContainer}>
+                <View style={styles.shopGrid}>
+                    <TouchableOpacity style={styles.regionBtn} onPress={() => buyEgg('random')}>
+                        <Image source={ITEM_ICONS['Egg']} style={styles.eggBtnIcon} resizeMode="contain" />
+                        <Text style={styles.btnTitleSmall}>{t.buy_egg}</Text>
+                        <Text style={styles.btnDescSmall}>{t.buy_desc}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.regionBtn} onPress={() => buyEgg('kanto')}>
+                        <Image source={ITEM_ICONS['Egg']} style={styles.eggBtnIcon} resizeMode="contain" />
+                        <Text style={styles.btnTitleSmall}>{t.buy_regional?.replace('%s', t.regions?.kanto)}</Text>
+                        <Text style={styles.btnDescSmall}>{t.regional_desc}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.regionBtn} onPress={() => buyEgg('johto')}>
+                        <Image source={ITEM_ICONS['Egg']} style={styles.eggBtnIcon} resizeMode="contain" />
+                        <Text style={styles.btnTitleSmall}>{t.buy_regional?.replace('%s', t.regions?.johto)}</Text>
+                        <Text style={styles.btnDescSmall}>{t.regional_desc}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.regionBtn} onPress={() => buyEgg('hoenn')}>
+                        <Image source={ITEM_ICONS['Egg']} style={styles.eggBtnIcon} resizeMode="contain" />
+                        <Text style={styles.btnTitleSmall}>{t.buy_regional?.replace('%s', t.regions?.hoenn)}</Text>
+                        <Text style={styles.btnDescSmall}>{t.regional_desc}</Text>
+                    </TouchableOpacity>
+                </View>
+
+                <ItemShop candies={stats.candies} onBuy={buyItem} t={t} />
+
+                <View style={styles.dualActionRow}>
+                    <TouchableOpacity style={[styles.miniActionBtn, (stats.candies < 5 || !stats.selectedPokemon || !stats.isHatched) && { opacity: 0.5 }]} onPress={levelUp} disabled={!stats.selectedPokemon || !stats.isHatched}>
+                        <Text style={styles.btnTitle}>{t.level_up}</Text>
+                        <Text style={styles.btnDesc}>5 🍬</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={[styles.miniActionBtn, (!canEvolve || !stats.selectedPokemon) && { opacity: 0.5, backgroundColor: '#334155' }]}
+                        onPress={handleEvolve}
+                        disabled={!canEvolve}
+                    >
+                        <Text style={styles.btnTitle}>{alreadyHasEvo ? t.owned : (canEvolve ? t.evolve : t.locked)}</Text>
+                        <Text style={styles.btnDesc}>{evoInfo ? `LV. ${evoInfo.level}` : t.max}</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+
+            <View style={styles.tabBar}>
+                <TouchableOpacity style={[styles.tab, activeTab === 'eggs' && styles.activeTab]} onPress={() => setActiveTab('eggs')}>
+                    <Text style={[styles.tabText, activeTab === 'eggs' && styles.activeTabText]}>{t.tabs?.eggs}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.tab, activeTab === 'pokemon' && styles.activeTab]} onPress={() => setActiveTab('pokemon')}>
+                    <Text style={[styles.tabText, activeTab === 'pokemon' && styles.activeTabText]}>{t.tabs?.pokemon}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.tab, activeTab === 'pokedex' && styles.activeTab]} onPress={() => setActiveTab('pokedex')}>
+                    <Text style={[styles.tabText, activeTab === 'pokedex' && styles.activeTabText]}>{t.tabs?.pokedex}</Text>
+                </TouchableOpacity>
+            </View>
+
+            {canShowShinyToggle && (activeTab === 'pokedex') && (
+                <TouchableOpacity
+                    style={[styles.shinyToggle, showShinies && styles.shinyToggleActive]}
+                    onPress={() => setShowShinies(!showShinies)}
+                >
+                    <Text style={[styles.shinyToggleText, showShinies && styles.shinyToggleTextActive]}>
+                        ✨ {showShinies ? "SHINY MODE ON" : "SHINY MODE OFF"} ✨
+                    </Text>
+                </TouchableOpacity>
+            )}
+        </View>
+    );
+});
+
 export default function HomeScreen() {
-  const [stats, setStats] = useState({ steps: 0, level: 1, isHatched: false, selectedPokemon: null, candies: 0, eggsBought: 0, ownedPokemon: [], inventory: [] });
+  const [stats, setStats] = useState({ steps: 0, level: 1, isHatched: false, selectedPokemon: null, candies: 0, eggsBought: 0, ownedPokemon: [], eggs: [], inventory: [] });
+  const [activeTab, setActiveTab] = useState<'eggs' | 'pokemon' | 'pokedex'>('eggs');
+  const [lang, setLang] = useState<'en' | 'es'>('es');
+  const [showShinies, setShowShinies] = useState(false);
+
+  const t = I18N[lang];
 
   const fetchStats = async () => {
     try {
       const data = await PokemonModule.getStats();
-      setStats({ ...data, ownedPokemon: data.ownedPokemon || [], inventory: data.inventory || [] });
+      setStats({ ...data, ownedPokemon: data.ownedPokemon || [], eggs: data.eggs || [], inventory: data.inventory || [] });
     } catch (e) { console.log(e); }
   };
 
@@ -121,35 +382,43 @@ export default function HomeScreen() {
   }, []);
 
   const ownedSet = useMemo(() => new Set(stats.ownedPokemon), [stats.ownedPokemon]);
+  const eggSet = useMemo(() => new Set(stats.eggs.map((e: any) => e.species)), [stats.eggs]);
 
   const handleGridPress = useCallback((name: string) => {
-    if (ownedSet.has(name)) {
-      PokemonModule.playCry(name);
-      PokemonModule.switchPokemon(name);
-    }
-  }, [ownedSet]);
+    const isActuallyOwned = ownedSet.has(name);
+    if (isActuallyOwned) PokemonModule.playCry(name);
 
-  const buyEgg = async () => {
-    // 1. Verificar/Pedir permiso de superposición antes de proceder
+    const isEgg = eggSet.has(name);
+    if (activeTab === 'pokedex' && !isActuallyOwned && !isEgg) return;
+
+    PokemonModule.switchPokemon(name);
+  }, [activeTab, ownedSet, eggSet]);
+
+  const buyEgg = async (type: 'random' | 'kanto' | 'johto' | 'hoenn') => {
     await PokemonModule.requestPermissions();
+    const cost = type === 'random' ? 30 : 60;
 
-    const eggCost = stats.eggsBought === 0 ? 0 : Math.min(50, stats.eggsBought * 10);
-    if (stats.candies >= eggCost || stats.eggsBought === 0) {
+    if (stats.candies >= cost) {
       let pool = [];
-      if (stats.eggsBought === 0) {
-        pool = STARTERS;
-      } else {
-        pool = (Math.random() * 100 < 15) ? LEGENDARY : [...COMMON, ...STARTERS];
-        pool = pool.filter(p => !ownedSet.has(p));
-      }
+      if (type === 'kanto') pool = KANTO;
+      else if (type === 'johto') pool = JOHTO;
+      else if (type === 'hoenn') pool = HOENN;
+      else pool = [...KANTO, ...JOHTO, ...HOENN];
+
+      const isLegendary = Math.random() * 100 < 1;
+      pool = pool.filter(p => isLegendary ? LEGENDARY.includes(p) : !ALL_LEGENDARY_REFS.includes(p));
+      pool = pool.filter(p => !ownedSet.has(p) && !eggSet.has(p));
 
       if (pool.length > 0) {
         const picked = pool[Math.floor(Math.random() * pool.length)];
+        await PokemonModule.buyItem("Egg Charge", cost);
         PokemonModule.setPokemon(picked);
         fetchStats();
       }
     }
   };
+
+  const ALL_LEGENDARY_REFS = LEGENDARY;
 
   const handleEvolve = async () => {
     if (!stats.selectedPokemon) return;
@@ -165,12 +434,12 @@ export default function HomeScreen() {
     }
   };
 
-  const buyItem = async (item: { name: string, cost: number }) => {
+  const buyItem = useCallback(async (item: { name: string, cost: number }) => {
     if (stats.candies >= item.cost) {
         await PokemonModule.buyItem(item.name, item.cost);
         fetchStats();
     }
-  };
+  }, [stats.candies]);
 
   const levelUp = async () => {
     if (stats.candies >= 5 && stats.selectedPokemon) {
@@ -179,106 +448,126 @@ export default function HomeScreen() {
     }
   };
 
-  const evoInfo = stats.selectedPokemon ? EVO_MAP[stats.selectedPokemon] : null;
-  const alreadyHasEvo = evoInfo && ownedSet.has(evoInfo.next);
-  const hasRequiredItem = evoInfo?.item ? stats.inventory.includes(evoInfo.item) : true;
-  const hasRequiredLevel = evoInfo?.level ? stats.level >= evoInfo.level : true;
-  const canEvolve = evoInfo && hasRequiredItem && hasRequiredLevel && !alreadyHasEvo;
+  const evoInfo = useMemo(() => stats.selectedPokemon ? EVO_MAP[stats.selectedPokemon] : null, [stats.selectedPokemon]);
+  const alreadyHasEvo = useMemo(() => evoInfo && ownedSet.has(evoInfo.next), [evoInfo, ownedSet]);
+  const hasRequiredItem = useMemo(() => evoInfo?.item ? stats.inventory.includes(evoInfo.item) : true, [evoInfo, stats.inventory]);
+  const hasRequiredLevel = useMemo(() => evoInfo?.level ? stats.level >= evoInfo.level : true, [evoInfo, stats.level]);
+  const canEvolve = useMemo(() => evoInfo && hasRequiredItem && hasRequiredLevel && !alreadyHasEvo, [evoInfo, hasRequiredItem, hasRequiredLevel, alreadyHasEvo]);
+
+  const isKantoComplete = useMemo(() => KANTO.length > 0 && KANTO.every(p => ownedSet.has(p)), [ownedSet]);
+  const isJohtoComplete = useMemo(() => JOHTO.length > 0 && JOHTO.every(p => ownedSet.has(p)), [ownedSet]);
+  const isHoennComplete = useMemo(() => HOENN.length > 0 && HOENN.every(p => ownedSet.has(p)), [ownedSet]);
+
+  const canShowShinyToggle = (activeTab === 'pokedex') && (isKantoComplete || isJohtoComplete || isHoennComplete);
+
+  const pokedexFlattened = useMemo(() => {
+    const data: any[] = [];
+    data.push({ type: 'header', title: t.regions.kanto });
+    KANTO.forEach(p => data.push(p));
+    data.push({ type: 'header', title: t.regions.johto });
+    JOHTO.forEach(p => data.push(p));
+    data.push({ type: 'header', title: t.regions.hoenn });
+    HOENN.forEach(p => data.push(p));
+    return data;
+  }, [t]);
+
+  const gridData = useMemo(() => {
+    if (activeTab === 'eggs') return stats.eggs;
+    if (activeTab === 'pokemon') return stats.ownedPokemon;
+    return pokedexFlattened;
+  }, [activeTab, stats.eggs, stats.ownedPokemon, pokedexFlattened]);
+
+  const chunk = (arr: any[], size: number) =>
+    Array.from({ length: Math.ceil(arr.length / size) }, (v, i) =>
+      arr.slice(i * size, i * size + size)
+    );
+
+  const pokedexSections = useMemo(() => {
+    return [
+      { title: t.regions.kanto, data: chunk(KANTO, 3) },
+      { title: t.regions.johto, data: chunk(JOHTO, 3) },
+      { title: t.regions.hoenn, data: chunk(HOENN, 3) },
+    ];
+  }, [t]);
+
+  const renderSingleItem = useCallback(({ item }: any) => {
+    const isActuallyHatched = ownedSet.has(item);
+
+    let isSelected = stats.selectedPokemon === item;
+    if (activeTab === 'pokedex' && !isActuallyHatched) {
+      isSelected = false;
+    }
+
+    return (
+      <PokemonGridItem
+          item={item}
+          isOwned={isActuallyHatched}
+          isSelected={isSelected}
+          onPress={handleGridPress}
+          isEgg={activeTab === 'eggs'}
+      />
+    );
+  }, [ownedSet, stats.selectedPokemon, activeTab, handleGridPress]);
 
   return (
     <SafeAreaView style={styles.container}>
       <LinearGradient colors={['#0f172a', '#1e293b']} style={styles.bg}>
-        <FlatList
-          data={ALL_POKEMON}
-          keyExtractor={(item) => item}
-          numColumns={4}
-          ListHeaderComponent={() => (
-            <>
-              <View style={styles.header}>
-                <Text style={styles.title}>POKÉMON SCREEN</Text>
-                <View style={styles.statsRow}>
-                  <View style={styles.statBox}><Text style={styles.statValue}>{stats.candies}</Text><Text style={styles.statLabel}>CANDIES</Text></View>
-                  <View style={styles.statBox}><Text style={styles.statValue}>{stats.steps}</Text><Text style={styles.statLabel}>STEPS</Text></View>
-                </View>
-              </View>
-
-              {stats.selectedPokemon ? (
-                <View style={styles.currentCard}>
-                  <Text style={styles.cardTitle}>CURRENT PARTNER</Text>
-                  {!stats.isHatched ? (
-                     <View style={styles.eggPlaceholder}>
-                        <View style={styles.uiEgg}>
-                            <View style={[styles.eggDot, {top: 10, left: 10}]} />
-                            <View style={[styles.eggDot, {top: 25, left: 25, width: 6, height: 6}]} />
-                        </View>
-                     </View>
-                  ) : (
-                    <Image source={{ uri: getIconUri(stats.selectedPokemon) }} style={styles.mainPokemonIcon} />
-                  )}
-                  <Text style={styles.pokemonName}>{stats.isHatched ? stats.selectedPokemon.toUpperCase() : "EGG"}</Text>
-                  <View style={styles.infoRow}>
-                    <Text style={styles.levelText}>LV. {stats.level}</Text>
-                    <TouchableOpacity onPress={() => PokemonModule.summon()} style={styles.summonBtn}><Text style={styles.summonBtnText}>RE-SUMMON</Text></TouchableOpacity>
-                  </View>
-                  {evoInfo && stats.isHatched && (
-                    <Text style={styles.evoRequirement}>
-                        {alreadyHasEvo ? "Already own evolution" :
-                         `${evoInfo.level ? `LV. ${evoInfo.level}` : ''}${evoInfo.level && evoInfo.item ? ' + ' : ''}${evoInfo.item ? evoInfo.item : ''}`}
-                    </Text>
-                  )}
-                  <View style={styles.progressBarBg}><View style={[styles.progressBarFill, { width: `${Math.min(100, (stats.steps % 100))}%` }]} /></View>
-                </View>
-              ) : (
-                <View style={[styles.currentCard, { paddingVertical: 40 }]}>
-                  <Text style={styles.pokemonName}>NO PARTNER</Text>
-                  <Text style={styles.evoRequirement}>Get your first egg below!</Text>
-                </View>
-              )}
-
-              <View style={styles.shopContainer}>
-                <TouchableOpacity style={styles.actionBtn} onPress={buyEgg}>
-                  <Text style={styles.btnEmoji}>🥚</Text>
-                  <View><Text style={styles.btnTitle}>BUY NEW EGG</Text><Text style={styles.btnDesc}>Costs {stats.eggsBought === 0 ? 'FREE' : Math.min(50, stats.eggsBought * 10)} 🍬</Text></View>
-                </TouchableOpacity>
-
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.itemShop}>
-                    {ITEMS.map((item) => (
-                        <TouchableOpacity key={item.name} style={styles.itemBtn} onPress={() => buyItem(item)}>
-                            <Text style={styles.itemEmoji}>{item.name.includes('Stone') ? '💎' : '🛠️'}</Text>
-                            <Text style={styles.itemBtnTitle}>{item.name}</Text>
-                            <Text style={styles.itemBtnCost}>{item.cost} 🍬</Text>
-                        </TouchableOpacity>
-                    ))}
-                </ScrollView>
-
-                <View style={styles.dualActionRow}>
-                  <TouchableOpacity style={[styles.miniActionBtn, (stats.candies < 5 || !stats.selectedPokemon || !stats.isHatched) && { opacity: 0.5 }]} onPress={levelUp} disabled={!stats.selectedPokemon || !stats.isHatched}>
-                    <Text style={styles.btnTitle}>LEVEL UP</Text>
-                    <Text style={styles.btnDesc}>5 🍬</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.miniActionBtn, (!canEvolve || !stats.selectedPokemon) && { opacity: 0.5, backgroundColor: '#334155' }]}
-                    onPress={handleEvolve}
-                    disabled={!canEvolve}
-                  >
-                    <Text style={styles.btnTitle}>{alreadyHasEvo ? 'OWNED' : (canEvolve ? 'EVOLVE!' : 'LOCKED')}</Text>
-                    <Text style={styles.btnDesc}>{evoInfo ? `LV. ${evoInfo.level}` : 'MAX'}</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-              <Text style={[styles.cardTitle, { marginTop: 30, marginBottom: 10 }]}>JOHTO COLLECTION</Text>
-            </>
-          )}
-          renderItem={({ item }) => {
-            const isOwned = ownedSet.has(item);
-            const isSelected = stats.selectedPokemon === item;
-            return (
-              <PokemonGridItem item={item} isOwned={isOwned} isSelected={isSelected} onPress={handleGridPress} />
-            );
-          }}
-          contentContainerStyle={{ padding: 25 }}
-        />
+        {activeTab === 'pokedex' ? (
+            <SectionList
+                sections={pokedexSections}
+                keyExtractor={(item, index) => `row-${index}`}
+                renderSectionHeader={({ section: { title } }) => (
+                    <Text style={styles.sectionHeader}>{title}</Text>
+                )}
+                renderItem={({ item }) => (
+                    <View style={styles.row}>
+                        {item.map((p: string) => (
+                            <View key={p} style={{ flex: 1 }}>
+                                {renderSingleItem({ item: p })}
+                            </View>
+                        ))}
+                        {/* Fillers for incomplete rows */}
+                        {item.length < 3 && Array(3 - item.length).fill(0).map((_, i) => <View key={`empty-${i}`} style={{ flex: 1 }} />)}
+                    </View>
+                )}
+                ListHeaderComponent={
+                    <HeaderContent
+                        stats={stats} buyEgg={buyEgg} buyItem={buyItem} levelUp={levelUp}
+                        handleEvolve={handleEvolve} activeTab={activeTab} setActiveTab={setActiveTab}
+                        canEvolve={canEvolve} alreadyHasEvo={alreadyHasEvo} evoInfo={evoInfo}
+                        lang={lang} setLang={setLang} t={t} canShowShinyToggle={canShowShinyToggle}
+                        showShinies={showShinies} setShowShinies={setShowShinies}
+                    />
+                }
+                stickySectionHeadersEnabled={false}
+                contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
+            />
+        ) : (
+            <FlatList
+                data={activeTab === 'eggs' ? stats.eggs : stats.ownedPokemon}
+                keyExtractor={(item, index) => typeof item === 'string' ? item : `egg-${index}`}
+                numColumns={3}
+                key={`list-${activeTab}`}
+                ListHeaderComponent={
+                    <HeaderContent
+                        stats={stats} buyEgg={buyEgg} buyItem={buyItem} levelUp={levelUp}
+                        handleEvolve={handleEvolve} activeTab={activeTab} setActiveTab={setActiveTab}
+                        canEvolve={canEvolve} alreadyHasEvo={alreadyHasEvo} evoInfo={evoInfo}
+                        lang={lang} setLang={setLang} t={t}
+                    />
+                }
+                renderItem={({ item }) => {
+                    const species = typeof item === 'string' ? item : item.species;
+                    return renderSingleItem({ item: species });
+                }}
+                ListEmptyComponent={
+                    <View style={styles.emptyContainer}>
+                        <Text style={styles.emptyText}>{activeTab === 'eggs' ? t.empty_eggs : t.empty_pokemon}</Text>
+                    </View>
+                }
+                contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
+            />
+        )}
       </LinearGradient>
     </SafeAreaView>
   );
@@ -287,7 +576,10 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0f172a' },
   bg: { flex: 1 },
-  header: { alignItems: 'center', marginBottom: 25 },
+  header: { marginTop: 10, marginBottom: 20 },
+  topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  langBtn: { backgroundColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
+  langText: { color: '#38bdf8', fontSize: 12, fontWeight: '900' },
   title: { color: '#fff', fontSize: 24, fontWeight: '900', letterSpacing: 4 },
   statsRow: { flexDirection: 'row', marginTop: 15, gap: 10 },
   statBox: { backgroundColor: 'rgba(255,255,255,0.05)', padding: 12, borderRadius: 15, alignItems: 'center', flex: 1 },
@@ -295,9 +587,10 @@ const styles = StyleSheet.create({
   statLabel: { color: '#64748b', fontSize: 9, fontWeight: 'bold' },
   currentCard: { backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 25, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
   mainPokemonIcon: { width: 64, height: 64 },
-  eggPlaceholder: { width: 64, height: 64, justifyContent: 'center', alignItems: 'center' },
-  uiEgg: { width: 40, height: 50, backgroundColor: '#fff', borderRadius: 20, borderWidth: 2, borderColor: '#E5E7EB' },
-  eggDot: { position: 'absolute', width: 8, height: 8, borderRadius: 4, backgroundColor: '#10B981' },
+  mainEggIcon: { width: 100, height: 100, marginBottom: 10 },
+  eggIcon: { width: 50, height: 50, marginBottom: 5 },
+  eggBtnIcon: { width: 45, height: 45, marginBottom: 2 },
+  shopItemIcon: { width: 32, height: 32, marginBottom: 5 },
   cardTitle: { color: '#64748b', fontSize: 11, fontWeight: 'bold', letterSpacing: 1 },
   pokemonName: { color: '#fff', fontSize: 28, fontWeight: '900' },
   infoRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 5 },
@@ -308,18 +601,36 @@ const styles = StyleSheet.create({
   progressBarBg: { width: '100%', height: 8, backgroundColor: '#1e293b', borderRadius: 4, marginTop: 15, overflow: 'hidden' },
   progressBarFill: { height: '100%', backgroundColor: '#38bdf8' },
   shopContainer: { marginTop: 20, gap: 10 },
+  shopGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  regionBtn: { flex: 1, minWidth: '45%', backgroundColor: '#1e293b', padding: 12, borderRadius: 18, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)', gap: 2 },
   itemShop: { flexDirection: 'row', marginVertical: 5 },
-  itemBtn: { backgroundColor: '#1e293b', padding: 12, borderRadius: 15, marginRight: 10, alignItems: 'center', minWidth: 80, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+  itemBtn: { backgroundColor: '#1e293b', padding: 12, borderRadius: 15, marginRight: 10, alignItems: 'center', minWidth: 90, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
   itemEmoji: { fontSize: 18, marginBottom: 4 },
-  itemBtnTitle: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
+  itemBtnTitle: { color: '#fff', fontSize: 9, fontWeight: 'bold', textAlign: 'center' },
   itemBtnCost: { color: '#fbbf24', fontSize: 9, fontWeight: '900' },
-  actionBtn: { flexDirection: 'row', backgroundColor: '#1e293b', padding: 15, borderRadius: 18, alignItems: 'center', gap: 15, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
   dualActionRow: { flexDirection: 'row', gap: 10 },
   miniActionBtn: { flex: 1, backgroundColor: '#1e293b', padding: 15, borderRadius: 18, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
-  btnEmoji: { fontSize: 24 },
+  btnEmoji: { fontSize: 20 },
   btnTitle: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+  btnTitleSmall: { color: '#fff', fontSize: 11, fontWeight: 'bold', marginTop: 2 },
+  btnDescSmall: { color: '#fbbf24', fontSize: 10, fontWeight: '900' },
   btnDesc: { color: '#64748b', fontSize: 11 },
-  gridItem: { flex: 1, aspectRatio: 1, margin: 5, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
-  gridIcon: { width: 50, height: 50 },
-  selectedItem: { borderColor: '#38bdf8', backgroundColor: 'rgba(56,189,248,0.1)' }
+  tabBar: { flexDirection: 'row', marginTop: 30, marginBottom: 15, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 15, padding: 5 },
+  tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 12 },
+  activeTab: { backgroundColor: '#38bdf8' },
+  tabText: { color: '#64748b', fontSize: 10, fontWeight: '900' },
+  activeTabText: { color: '#000' },
+  sectionHeader: { color: '#fbbf24', fontSize: 14, fontWeight: '900', marginTop: 30, marginBottom: 10, letterSpacing: 2, width: '100%' },
+  row: { flexDirection: 'row', justifyContent: 'flex-start' },
+  gridItem: { width: (Dimensions.get('window').width - 60) / 3, aspectRatio: 0.9, margin: 5, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
+  gridIcon: { width: 45, height: 45 },
+  eggIcon: { width: 35, height: 35, marginBottom: 5 },
+  gridName: { color: '#64748b', fontSize: 7, fontWeight: 'bold', marginTop: 5, textAlign: 'center' },
+  selectedItem: { borderColor: '#38bdf8', backgroundColor: 'rgba(56,189,248,0.1)' },
+  emptyContainer: { padding: 40, alignItems: 'center' },
+  emptyText: { color: '#64748b', textAlign: 'center', fontSize: 12 },
+  shinyToggle: { backgroundColor: 'rgba(255,255,255,0.05)', marginHorizontal: 20, padding: 12, borderRadius: 15, alignItems: 'center', marginBottom: 15, borderWidth: 1, borderColor: 'rgba(251,191,36,0.2)' },
+  shinyToggleActive: { backgroundColor: 'rgba(251,191,36,0.1)', borderColor: '#fbbf24' },
+  shinyToggleText: { color: '#64748b', fontSize: 11, fontWeight: '900' },
+  shinyToggleTextActive: { color: '#fbbf24' }
 });

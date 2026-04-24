@@ -1,0 +1,1218 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<title>Pokémon Screen · Totodile concept</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #f0eee9; font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+
+// DesignCanvas.jsx — Figma-ish design canvas wrapper
+// Warm gray grid bg + Sections + Artboards + PostIt notes.
+// Artboards are reorderable (grip-drag), labels/titles are inline-editable,
+// and any artboard can be opened in a fullscreen focus overlay (←/→/Esc).
+// State persists to a .design-canvas.state.json sidecar via the host
+// bridge. No assets, no deps.
+//
+// Usage:
+//   <DesignCanvas>
+//     <DCSection id="onboarding" title="Onboarding" subtitle="First-run variants">
+//       <DCArtboard id="a" label="A · Dusk" width={260} height={480}>…</DCArtboard>
+//       <DCArtboard id="b" label="B · Minimal" width={260} height={480}>…</DCArtboard>
+//     </DCSection>
+//   </DesignCanvas>
+
+const DC = {
+  bg: '#f0eee9',
+  grid: 'rgba(0,0,0,0.06)',
+  label: 'rgba(60,50,40,0.7)',
+  title: 'rgba(40,30,20,0.85)',
+  subtitle: 'rgba(60,50,40,0.6)',
+  postitBg: '#fef4a8',
+  postitText: '#5a4a2a',
+  font: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+};
+
+// One-time CSS injection (classes are dc-prefixed so they don't collide with
+// the hosted design's own styles).
+if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
+  const s = document.createElement('style');
+  s.id = 'dc-styles';
+  s.textContent = [
+    '.dc-editable{cursor:text;outline:none;white-space:nowrap;border-radius:3px;padding:0 2px;margin:0 -2px}',
+    '.dc-editable:focus{background:#fff;box-shadow:0 0 0 1.5px #c96442}',
+    '[data-dc-slot]{transition:transform .18s cubic-bezier(.2,.7,.3,1)}',
+    '[data-dc-slot].dc-dragging{transition:none;z-index:10;pointer-events:none}',
+    '[data-dc-slot].dc-dragging .dc-card{box-shadow:0 12px 40px rgba(0,0,0,.25),0 0 0 2px #c96442;transform:scale(1.02)}',
+    '.dc-card{transition:box-shadow .15s,transform .15s}',
+    '.dc-card *{scrollbar-width:none}',
+    '.dc-card *::-webkit-scrollbar{display:none}',
+    '.dc-labelrow{display:flex;align-items:center;gap:4px;height:24px}',
+    '.dc-grip{cursor:grab;display:flex;align-items:center;padding:5px 4px;border-radius:4px;transition:background .12s}',
+    '.dc-grip:hover{background:rgba(0,0,0,.08)}',
+    '.dc-grip:active{cursor:grabbing}',
+    '.dc-labeltext{cursor:pointer;border-radius:4px;padding:3px 6px;display:flex;align-items:center;transition:background .12s}',
+    '.dc-labeltext:hover{background:rgba(0,0,0,.05)}',
+    '.dc-expand{position:absolute;bottom:100%;right:0;margin-bottom:5px;z-index:2;opacity:0;transition:opacity .12s,background .12s;',
+    '  width:22px;height:22px;border-radius:5px;border:none;cursor:pointer;padding:0;',
+    '  background:transparent;color:rgba(60,50,40,.7);display:flex;align-items:center;justify-content:center}',
+    '.dc-expand:hover{background:rgba(0,0,0,.06);color:#2a251f}',
+    '[data-dc-slot]:hover .dc-expand{opacity:1}',
+  ].join('\n');
+  document.head.appendChild(s);
+}
+
+const DCCtx = React.createContext(null);
+
+// ─────────────────────────────────────────────────────────────
+// DesignCanvas — stateful wrapper around the pan/zoom viewport.
+// Owns runtime state (per-section order, renamed titles/labels, focused
+// artboard). Order/titles/labels persist to a .design-canvas.state.json
+// sidecar next to the HTML. Reads go via plain fetch() so the saved
+// arrangement is visible anywhere the HTML + sidecar are served together
+// (omelette preview, direct link, downloaded zip). Writes go through the
+// host's window.omelette bridge — editing requires the omelette runtime.
+// Focus is ephemeral.
+// ─────────────────────────────────────────────────────────────
+const DC_STATE_FILE = '.design-canvas.state.json';
+
+function DesignCanvas({ children, minScale, maxScale, style }) {
+  const [state, setState] = React.useState({ sections: {}, focus: null });
+  // Hold rendering until the sidecar read settles so the saved order/titles
+  // appear on first paint (no source-order flash). didRead gates writes until
+  // the read settles so the empty initial state can't clobber a slow read;
+  // skipNextWrite suppresses the one echo-write that would otherwise follow
+  // hydration.
+  const [ready, setReady] = React.useState(false);
+  const didRead = React.useRef(false);
+  const skipNextWrite = React.useRef(false);
+
+  React.useEffect(() => {
+    let off = false;
+    fetch('./' + DC_STATE_FILE)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((saved) => {
+        if (off || !saved || !saved.sections) return;
+        skipNextWrite.current = true;
+        setState((s) => ({ ...s, sections: saved.sections }));
+      })
+      .catch(() => {})
+      .finally(() => { didRead.current = true; if (!off) setReady(true); });
+    const t = setTimeout(() => { if (!off) setReady(true); }, 150);
+    return () => { off = true; clearTimeout(t); };
+  }, []);
+
+  React.useEffect(() => {
+    if (!didRead.current) return;
+    if (skipNextWrite.current) { skipNextWrite.current = false; return; }
+    const t = setTimeout(() => {
+      window.omelette?.writeFile(DC_STATE_FILE, JSON.stringify({ sections: state.sections })).catch(() => {});
+    }, 250);
+    return () => clearTimeout(t);
+  }, [state.sections]);
+
+  // Build registries synchronously from children so FocusOverlay can read
+  // them in the same render. Only direct DCSection > DCArtboard children are
+  // walked — wrapping them in other elements opts out of focus/reorder.
+  const registry = {};     // slotId -> { sectionId, artboard }
+  const sectionMeta = {};  // sectionId -> { title, subtitle, slotIds[] }
+  const sectionOrder = [];
+  React.Children.forEach(children, (sec) => {
+    if (!sec || sec.type !== DCSection) return;
+    const sid = sec.props.id ?? sec.props.title;
+    if (!sid) return;
+    sectionOrder.push(sid);
+    const persisted = state.sections[sid] || {};
+    const srcIds = [];
+    React.Children.forEach(sec.props.children, (ab) => {
+      if (!ab || ab.type !== DCArtboard) return;
+      const aid = ab.props.id ?? ab.props.label;
+      if (!aid) return;
+      registry[`${sid}/${aid}`] = { sectionId: sid, artboard: ab };
+      srcIds.push(aid);
+    });
+    const kept = (persisted.order || []).filter((k) => srcIds.includes(k));
+    sectionMeta[sid] = {
+      title: persisted.title ?? sec.props.title,
+      subtitle: sec.props.subtitle,
+      slotIds: [...kept, ...srcIds.filter((k) => !kept.includes(k))],
+    };
+  });
+
+  const api = React.useMemo(() => ({
+    state,
+    section: (id) => state.sections[id] || {},
+    patchSection: (id, p) => setState((s) => ({
+      ...s,
+      sections: { ...s.sections, [id]: { ...s.sections[id], ...(typeof p === 'function' ? p(s.sections[id] || {}) : p) } },
+    })),
+    setFocus: (slotId) => setState((s) => ({ ...s, focus: slotId })),
+  }), [state]);
+
+  // Esc exits focus; any outside pointerdown commits an in-progress rename.
+  React.useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') api.setFocus(null); };
+    const onPd = (e) => {
+      const ae = document.activeElement;
+      if (ae && ae.isContentEditable && !ae.contains(e.target)) ae.blur();
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onPd, true);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onPd, true);
+    };
+  }, [api]);
+
+  return (
+    <DCCtx.Provider value={api}>
+      <DCViewport minScale={minScale} maxScale={maxScale} style={style}>{ready && children}</DCViewport>
+      {state.focus && registry[state.focus] && (
+        <DCFocusOverlay entry={registry[state.focus]} sectionMeta={sectionMeta} sectionOrder={sectionOrder} />
+      )}
+    </DCCtx.Provider>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// DCViewport — transform-based pan/zoom (internal)
+//
+// Input mapping (Figma-style):
+//   • trackpad pinch  → zoom   (ctrlKey wheel; Safari gesture* events)
+//   • trackpad scroll → pan    (two-finger)
+//   • mouse wheel     → zoom   (notched; distinguished from trackpad scroll)
+//   • middle-drag / primary-drag-on-bg → pan
+//
+// Transform state lives in a ref and is written straight to the DOM
+// (translate3d + will-change) so wheel ticks don't go through React —
+// keeps pans at 60fps on dense canvases.
+// ─────────────────────────────────────────────────────────────
+function DCViewport({ children, minScale = 0.1, maxScale = 8, style = {} }) {
+  const vpRef = React.useRef(null);
+  const worldRef = React.useRef(null);
+  const tf = React.useRef({ x: 0, y: 0, scale: 1 });
+
+  const apply = React.useCallback(() => {
+    const { x, y, scale } = tf.current;
+    const el = worldRef.current;
+    if (el) el.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
+  }, []);
+
+  React.useEffect(() => {
+    const vp = vpRef.current;
+    if (!vp) return;
+
+    const zoomAt = (cx, cy, factor) => {
+      const r = vp.getBoundingClientRect();
+      const px = cx - r.left, py = cy - r.top;
+      const t = tf.current;
+      const next = Math.min(maxScale, Math.max(minScale, t.scale * factor));
+      const k = next / t.scale;
+      // keep the world point under the cursor fixed
+      t.x = px - (px - t.x) * k;
+      t.y = py - (py - t.y) * k;
+      t.scale = next;
+      apply();
+    };
+
+    // Mouse-wheel vs trackpad-scroll heuristic. A physical wheel sends
+    // line-mode deltas (Firefox) or large integer pixel deltas with no X
+    // component (Chrome/Safari, typically multiples of 100/120). Trackpad
+    // two-finger scroll sends small/fractional pixel deltas, often with
+    // non-zero deltaX. ctrlKey is set by the browser for trackpad pinch.
+    const isMouseWheel = (e) =>
+      e.deltaMode !== 0 ||
+      (e.deltaX === 0 && Number.isInteger(e.deltaY) && Math.abs(e.deltaY) >= 40);
+
+    const onWheel = (e) => {
+      e.preventDefault();
+      if (isGesturing) return; // Safari: gesture* owns the pinch — discard concurrent wheels
+      if (e.ctrlKey) {
+        // trackpad pinch (or explicit ctrl+wheel)
+        zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.01));
+      } else if (isMouseWheel(e)) {
+        // notched mouse wheel — fixed-ratio step per click
+        zoomAt(e.clientX, e.clientY, Math.exp(-Math.sign(e.deltaY) * 0.18));
+      } else {
+        // trackpad two-finger scroll — pan
+        tf.current.x -= e.deltaX;
+        tf.current.y -= e.deltaY;
+        apply();
+      }
+    };
+
+    // Safari sends native gesture* events for trackpad pinch with a smooth
+    // e.scale; preferring these over the ctrl+wheel fallback gives a much
+    // better feel there. No-ops on other browsers. Safari also fires
+    // ctrlKey wheel events during the same pinch — isGesturing makes
+    // onWheel drop those entirely so they neither zoom nor pan.
+    let gsBase = 1;
+    let isGesturing = false;
+    const onGestureStart = (e) => { e.preventDefault(); isGesturing = true; gsBase = tf.current.scale; };
+    const onGestureChange = (e) => {
+      e.preventDefault();
+      zoomAt(e.clientX, e.clientY, (gsBase * e.scale) / tf.current.scale);
+    };
+    const onGestureEnd = (e) => { e.preventDefault(); isGesturing = false; };
+
+    // Drag-pan: middle button anywhere, or primary button on canvas
+    // background (anything that isn't an artboard or an inline editor).
+    let drag = null;
+    const onPointerDown = (e) => {
+      const onBg = !e.target.closest('[data-dc-slot], .dc-editable');
+      if (!(e.button === 1 || (e.button === 0 && onBg))) return;
+      e.preventDefault();
+      vp.setPointerCapture(e.pointerId);
+      drag = { id: e.pointerId, lx: e.clientX, ly: e.clientY };
+      vp.style.cursor = 'grabbing';
+    };
+    const onPointerMove = (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      tf.current.x += e.clientX - drag.lx;
+      tf.current.y += e.clientY - drag.ly;
+      drag.lx = e.clientX; drag.ly = e.clientY;
+      apply();
+    };
+    const onPointerUp = (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      vp.releasePointerCapture(e.pointerId);
+      drag = null;
+      vp.style.cursor = '';
+    };
+
+    vp.addEventListener('wheel', onWheel, { passive: false });
+    vp.addEventListener('gesturestart', onGestureStart, { passive: false });
+    vp.addEventListener('gesturechange', onGestureChange, { passive: false });
+    vp.addEventListener('gestureend', onGestureEnd, { passive: false });
+    vp.addEventListener('pointerdown', onPointerDown);
+    vp.addEventListener('pointermove', onPointerMove);
+    vp.addEventListener('pointerup', onPointerUp);
+    vp.addEventListener('pointercancel', onPointerUp);
+    return () => {
+      vp.removeEventListener('wheel', onWheel);
+      vp.removeEventListener('gesturestart', onGestureStart);
+      vp.removeEventListener('gesturechange', onGestureChange);
+      vp.removeEventListener('gestureend', onGestureEnd);
+      vp.removeEventListener('pointerdown', onPointerDown);
+      vp.removeEventListener('pointermove', onPointerMove);
+      vp.removeEventListener('pointerup', onPointerUp);
+      vp.removeEventListener('pointercancel', onPointerUp);
+    };
+  }, [apply, minScale, maxScale]);
+
+  const gridSvg = `url("data:image/svg+xml,%3Csvg width='120' height='120' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M120 0H0v120' fill='none' stroke='${encodeURIComponent(DC.grid)}' stroke-width='1'/%3E%3C/svg%3E")`;
+  return (
+    <div
+      ref={vpRef}
+      className="design-canvas"
+      style={{
+        height: '100vh', width: '100vw',
+        background: DC.bg,
+        overflow: 'hidden',
+        overscrollBehavior: 'none',
+        touchAction: 'none',
+        position: 'relative',
+        fontFamily: DC.font,
+        boxSizing: 'border-box',
+        ...style,
+      }}
+    >
+      <div
+        ref={worldRef}
+        style={{
+          position: 'absolute', top: 0, left: 0,
+          transformOrigin: '0 0',
+          willChange: 'transform',
+          width: 'max-content', minWidth: '100%',
+          minHeight: '100%',
+          padding: '60px 0 80px',
+        }}
+      >
+        <div style={{ position: 'absolute', inset: -6000, backgroundImage: gridSvg, backgroundSize: '120px 120px', pointerEvents: 'none', zIndex: -1 }} />
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// DCSection — editable title + h-row of artboards in persisted order
+// ─────────────────────────────────────────────────────────────
+function DCSection({ id, title, subtitle, children, gap = 48 }) {
+  const ctx = React.useContext(DCCtx);
+  const sid = id ?? title;
+  const all = React.Children.toArray(children);
+  const artboards = all.filter((c) => c && c.type === DCArtboard);
+  const rest = all.filter((c) => !(c && c.type === DCArtboard));
+  const srcOrder = artboards.map((a) => a.props.id ?? a.props.label);
+  const sec = (ctx && sid && ctx.section(sid)) || {};
+
+  const order = React.useMemo(() => {
+    const kept = (sec.order || []).filter((k) => srcOrder.includes(k));
+    return [...kept, ...srcOrder.filter((k) => !kept.includes(k))];
+  }, [sec.order, srcOrder.join('|')]);
+
+  const byId = Object.fromEntries(artboards.map((a) => [a.props.id ?? a.props.label, a]));
+
+  return (
+    <div data-dc-section={sid} style={{ marginBottom: 80, position: 'relative' }}>
+      <div style={{ padding: '0 60px 56px' }}>
+        <DCEditable tag="div" value={sec.title ?? title}
+          onChange={(v) => ctx && sid && ctx.patchSection(sid, { title: v })}
+          style={{ fontSize: 28, fontWeight: 600, color: DC.title, letterSpacing: -0.4, marginBottom: 6, display: 'inline-block' }} />
+        {subtitle && <div style={{ fontSize: 16, color: DC.subtitle }}>{subtitle}</div>}
+      </div>
+      <div style={{ display: 'flex', gap, padding: '0 60px', alignItems: 'flex-start', width: 'max-content' }}>
+        {order.map((k) => (
+          <DCArtboardFrame key={k} sectionId={sid} artboard={byId[k]} order={order}
+            label={(sec.labels || {})[k] ?? byId[k].props.label}
+            onRename={(v) => ctx && ctx.patchSection(sid, (x) => ({ labels: { ...x.labels, [k]: v } }))}
+            onReorder={(next) => ctx && ctx.patchSection(sid, { order: next })}
+            onFocus={() => ctx && ctx.setFocus(`${sid}/${k}`)} />
+        ))}
+      </div>
+      {rest}
+    </div>
+  );
+}
+
+// DCArtboard — marker; rendered by DCArtboardFrame via DCSection.
+function DCArtboard() { return null; }
+
+function DCArtboardFrame({ sectionId, artboard, label, order, onRename, onReorder, onFocus }) {
+  const { id: rawId, label: rawLabel, width = 260, height = 480, children, style = {} } = artboard.props;
+  const id = rawId ?? rawLabel;
+  const ref = React.useRef(null);
+
+  // Live drag-reorder: dragged card sticks to cursor; siblings slide into
+  // their would-be slots in real time via transforms. DOM order only
+  // changes on drop.
+  const onGripDown = (e) => {
+    e.preventDefault(); e.stopPropagation();
+    const me = ref.current;
+    // translateX is applied in local (pre-scale) space but pointer deltas and
+    // getBoundingClientRect().left are screen-space — divide by the viewport's
+    // current scale so the dragged card tracks the cursor at any zoom level.
+    const scale = me.getBoundingClientRect().width / me.offsetWidth || 1;
+    const peers = Array.from(document.querySelectorAll(`[data-dc-section="${sectionId}"] [data-dc-slot]`));
+    const homes = peers.map((el) => ({ el, id: el.dataset.dcSlot, x: el.getBoundingClientRect().left }));
+    const slotXs = homes.map((h) => h.x);
+    const startIdx = order.indexOf(id);
+    const startX = e.clientX;
+    let liveOrder = order.slice();
+    me.classList.add('dc-dragging');
+
+    const layout = () => {
+      for (const h of homes) {
+        if (h.id === id) continue;
+        const slot = liveOrder.indexOf(h.id);
+        h.el.style.transform = `translateX(${(slotXs[slot] - h.x) / scale}px)`;
+      }
+    };
+
+    const move = (ev) => {
+      const dx = ev.clientX - startX;
+      me.style.transform = `translateX(${dx / scale}px)`;
+      const cur = homes[startIdx].x + dx;
+      let nearest = 0, best = Infinity;
+      for (let i = 0; i < slotXs.length; i++) {
+        const d = Math.abs(slotXs[i] - cur);
+        if (d < best) { best = d; nearest = i; }
+      }
+      if (liveOrder.indexOf(id) !== nearest) {
+        liveOrder = order.filter((k) => k !== id);
+        liveOrder.splice(nearest, 0, id);
+        layout();
+      }
+    };
+
+    const up = () => {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', up);
+      const finalSlot = liveOrder.indexOf(id);
+      me.classList.remove('dc-dragging');
+      me.style.transform = `translateX(${(slotXs[finalSlot] - homes[startIdx].x) / scale}px)`;
+      // After the settle transition, kill transitions + clear transforms +
+      // commit the reorder in the same frame so there's no visual snap-back.
+      setTimeout(() => {
+        for (const h of homes) { h.el.style.transition = 'none'; h.el.style.transform = ''; }
+        if (liveOrder.join('|') !== order.join('|')) onReorder(liveOrder);
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          for (const h of homes) h.el.style.transition = '';
+        }));
+      }, 180);
+    };
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', up);
+  };
+
+  return (
+    <div ref={ref} data-dc-slot={id} style={{ position: 'relative', flexShrink: 0 }}>
+      <div className="dc-labelrow" style={{ position: 'absolute', bottom: '100%', left: -4, marginBottom: 4, color: DC.label }}>
+        <div className="dc-grip" onPointerDown={onGripDown} title="Drag to reorder">
+          <svg width="9" height="13" viewBox="0 0 9 13" fill="currentColor"><circle cx="2" cy="2" r="1.1"/><circle cx="7" cy="2" r="1.1"/><circle cx="2" cy="6.5" r="1.1"/><circle cx="7" cy="6.5" r="1.1"/><circle cx="2" cy="11" r="1.1"/><circle cx="7" cy="11" r="1.1"/></svg>
+        </div>
+        <div className="dc-labeltext" onClick={onFocus} title="Click to focus">
+          <DCEditable value={label} onChange={onRename} onClick={(e) => e.stopPropagation()}
+            style={{ fontSize: 15, fontWeight: 500, color: DC.label, lineHeight: 1 }} />
+        </div>
+      </div>
+      <button className="dc-expand" onClick={onFocus} onPointerDown={(e) => e.stopPropagation()} title="Focus">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M7 1h4v4M5 11H1V7M11 1L7.5 4.5M1 11l3.5-3.5"/></svg>
+      </button>
+      <div className="dc-card"
+        style={{ borderRadius: 2, boxShadow: '0 1px 3px rgba(0,0,0,.08),0 4px 16px rgba(0,0,0,.06)', overflow: 'hidden', width, height, background: '#fff', ...style }}>
+        {children || <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb', fontSize: 13, fontFamily: DC.font }}>{id}</div>}
+      </div>
+    </div>
+  );
+}
+
+// Inline rename — commits on blur or Enter.
+function DCEditable({ value, onChange, style, tag = 'span', onClick }) {
+  const T = tag;
+  return (
+    <T className="dc-editable" contentEditable suppressContentEditableWarning
+      onClick={onClick}
+      onPointerDown={(e) => e.stopPropagation()}
+      onBlur={(e) => onChange && onChange(e.currentTarget.textContent)}
+      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
+      style={style}>{value}</T>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Focus mode — overlay one artboard; ←/→ within section, ↑/↓ across
+// sections, Esc or backdrop click to exit.
+// ─────────────────────────────────────────────────────────────
+function DCFocusOverlay({ entry, sectionMeta, sectionOrder }) {
+  const ctx = React.useContext(DCCtx);
+  const { sectionId, artboard } = entry;
+  const sec = ctx.section(sectionId);
+  const meta = sectionMeta[sectionId];
+  const peers = meta.slotIds;
+  const aid = artboard.props.id ?? artboard.props.label;
+  const idx = peers.indexOf(aid);
+  const secIdx = sectionOrder.indexOf(sectionId);
+
+  const go = (d) => { const n = peers[(idx + d + peers.length) % peers.length]; if (n) ctx.setFocus(`${sectionId}/${n}`); };
+  const goSection = (d) => {
+    const ns = sectionOrder[(secIdx + d + sectionOrder.length) % sectionOrder.length];
+    const first = sectionMeta[ns] && sectionMeta[ns].slotIds[0];
+    if (first) ctx.setFocus(`${ns}/${first}`);
+  };
+
+  React.useEffect(() => {
+    const k = (e) => {
+      if (e.key === 'ArrowLeft') { e.preventDefault(); go(-1); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); go(1); }
+      if (e.key === 'ArrowUp') { e.preventDefault(); goSection(-1); }
+      if (e.key === 'ArrowDown') { e.preventDefault(); goSection(1); }
+    };
+    document.addEventListener('keydown', k);
+    return () => document.removeEventListener('keydown', k);
+  });
+
+  const { width = 260, height = 480, children } = artboard.props;
+  const [vp, setVp] = React.useState({ w: window.innerWidth, h: window.innerHeight });
+  React.useEffect(() => { const r = () => setVp({ w: window.innerWidth, h: window.innerHeight }); window.addEventListener('resize', r); return () => window.removeEventListener('resize', r); }, []);
+  const scale = Math.max(0.1, Math.min((vp.w - 200) / width, (vp.h - 260) / height, 2));
+
+  const [ddOpen, setDd] = React.useState(false);
+  const Arrow = ({ dir, onClick }) => (
+    <button onClick={(e) => { e.stopPropagation(); onClick(); }}
+      style={{ position: 'absolute', top: '50%', [dir]: 28, transform: 'translateY(-50%)',
+        border: 'none', background: 'rgba(255,255,255,.08)', color: 'rgba(255,255,255,.9)',
+        width: 44, height: 44, borderRadius: 22, fontSize: 18, cursor: 'pointer',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background .15s' }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,.18)')}
+      onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,.08)')}>
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        <path d={dir === 'left' ? 'M11 3L5 9l6 6' : 'M7 3l6 6-6 6'} /></svg>
+    </button>
+  );
+
+  // Portal to body so position:fixed is the real viewport regardless of any
+  // transform on DesignCanvas's ancestors (including the canvas zoom itself).
+  return ReactDOM.createPortal(
+    <div onClick={() => ctx.setFocus(null)}
+      onWheel={(e) => e.preventDefault()}
+      style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(24,20,16,.6)', backdropFilter: 'blur(14px)',
+        fontFamily: DC.font, color: '#fff' }}>
+
+      {/* top bar: section dropdown (left) · close (right) */}
+      <div onClick={(e) => e.stopPropagation()}
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 72, display: 'flex', alignItems: 'flex-start', padding: '16px 20px 0', gap: 16 }}>
+        <div style={{ position: 'relative' }}>
+          <button onClick={() => setDd((o) => !o)}
+            style={{ border: 'none', background: 'transparent', color: '#fff', cursor: 'pointer', padding: '6px 8px',
+              borderRadius: 6, textAlign: 'left', fontFamily: 'inherit' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 18, fontWeight: 600, letterSpacing: -0.3 }}>{meta.title}</span>
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" style={{ opacity: .7 }}><path d="M2 4l3.5 3.5L9 4"/></svg>
+            </span>
+            {meta.subtitle && <span style={{ display: 'block', fontSize: 13, opacity: .6, fontWeight: 400, marginTop: 2 }}>{meta.subtitle}</span>}
+          </button>
+          {ddOpen && (
+            <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, background: '#2a251f', borderRadius: 8,
+              boxShadow: '0 8px 32px rgba(0,0,0,.4)', padding: 4, minWidth: 200, zIndex: 10 }}>
+              {sectionOrder.map((sid) => (
+                <button key={sid} onClick={() => { setDd(false); const f = sectionMeta[sid].slotIds[0]; if (f) ctx.setFocus(`${sid}/${f}`); }}
+                  style={{ display: 'block', width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer',
+                    background: sid === sectionId ? 'rgba(255,255,255,.1)' : 'transparent', color: '#fff',
+                    padding: '8px 12px', borderRadius: 5, fontSize: 14, fontWeight: sid === sectionId ? 600 : 400, fontFamily: 'inherit' }}>
+                  {sectionMeta[sid].title}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div style={{ flex: 1 }} />
+        <button onClick={() => ctx.setFocus(null)}
+          onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,.12)')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+          style={{ border: 'none', background: 'transparent', color: 'rgba(255,255,255,.7)', width: 32, height: 32,
+            borderRadius: 16, fontSize: 20, cursor: 'pointer', lineHeight: 1, transition: 'background .12s' }}>×</button>
+      </div>
+
+      {/* card centered, label + index below — only the card itself stops
+          propagation so any backdrop click (including the margins around
+          the card) exits focus */}
+      <div
+        style={{ position: 'absolute', top: 64, bottom: 56, left: 100, right: 100, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+        <div onClick={(e) => e.stopPropagation()} style={{ width: width * scale, height: height * scale, position: 'relative' }}>
+          <div style={{ width, height, transform: `scale(${scale})`, transformOrigin: 'top left', background: '#fff', borderRadius: 2, overflow: 'hidden',
+            boxShadow: '0 20px 80px rgba(0,0,0,.4)' }}>
+            {children || <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb' }}>{aid}</div>}
+          </div>
+        </div>
+        <div onClick={(e) => e.stopPropagation()} style={{ fontSize: 14, fontWeight: 500, opacity: .85, textAlign: 'center' }}>
+          {(sec.labels || {})[aid] ?? artboard.props.label}
+          <span style={{ opacity: .5, marginLeft: 10, fontVariantNumeric: 'tabular-nums' }}>{idx + 1} / {peers.length}</span>
+        </div>
+      </div>
+
+      <Arrow dir="left" onClick={() => go(-1)} />
+      <Arrow dir="right" onClick={() => go(1)} />
+
+      {/* dots */}
+      <div onClick={(e) => e.stopPropagation()}
+        style={{ position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 8 }}>
+        {peers.map((p, i) => (
+          <button key={p} onClick={() => ctx.setFocus(`${sectionId}/${p}`)}
+            style={{ border: 'none', padding: 0, cursor: 'pointer', width: 6, height: 6, borderRadius: 3,
+              background: i === idx ? '#fff' : 'rgba(255,255,255,.3)' }} />
+        ))}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Post-it — absolute-positioned sticky note
+// ─────────────────────────────────────────────────────────────
+function DCPostIt({ children, top, left, right, bottom, rotate = -2, width = 180 }) {
+  return (
+    <div style={{
+      position: 'absolute', top, left, right, bottom, width,
+      background: DC.postitBg, padding: '14px 16px',
+      fontFamily: '"Comic Sans MS", "Marker Felt", "Segoe Print", cursive',
+      fontSize: 14, lineHeight: 1.4, color: DC.postitText,
+      boxShadow: '0 2px 8px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)',
+      transform: `rotate(${rotate}deg)`,
+      zIndex: 5,
+    }}>{children}</div>
+  );
+}
+
+Object.assign(window, { DesignCanvas, DCSection, DCArtboard, DCPostIt });
+
+
+// scenes.jsx — Lock/Home screen scenes showing Totodile roaming
+// Original, non-branded Android-style shell.
+
+const SPRITE = 'data:image/gif;base64,R0lGODlhKwA6APMNAP/GUq2EKf///3sYAJTW/85CIbVKUud7e7W1tTFahDGExhAQEGu155SUlAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQFFAANACwAAAAAKwA6AAAE/7DJSau9OOvNu/9gKI5kaZ5oqq5s675wLM90bd94ru+d4jeKRELGYBAIviJDsXgZjwmltNl6RpVJxpClIGiVCYVAoChSVeWvNjEWIKKLgVx+SheFCEM7nCj4CwMjRQ1XdwkLAgYHY0IMC36BIlZhhocHC3oCjY+AIl1eUmuWmG5XfZEhCaChjgsLCAuLdo6oIFdZrKGFj3QgC3dgC4XBUn2QtRy/d2eHrs7KSpwFwlscAs7XE68DBt0D0GauqqpnGmeu2t3d10V27lrlHgoSr4oHBwbKUQGzRQTxHLr4wHQPHzstAQD0c+TpiCMBBQ0MMAUAwLAuAHv8c3NvwMEEFaUtSmFCoowziYzuhFQYrcK3DrtaCbuTcKWQBSQlDJjmQUiUYY5qVgwQoN3ABjt5ini2gOjQokvK+GDyJyOHQ0SbDsUCZioTcSFMKgigFaqarl6PfkiDk6zZs3fSqoUZLS0wVmG8WsUQZWreqXDr+jiUKq0wvQufkRBiOC9OXDlH4MTJ+OgzwyZ+SR0M8HAQdCVmfsaAc4npvR5AZ/j1kyGNZqovRAAAIfkECQoAAAAsAAAAACgAOQAAAjGEj6nL7Q+jnLTai7PevPsPhuJIluaJpurKtu4Lx/JM1/aN5/rO9/4PDAqHxKLxaCgAACH5BAkKAA0ALAQAFwAjACMAAAT/sMlJlW0qJcq7pwxDEFbIKMunduKYmHC6zu1rlsw2qwqRmwmFQKAIyXad4i+XGAoQr8VgOkVKlCENwuAMJgrgwoDGaNiyiYXAcBhqGAvweFULotOHBVfwjotXPT4wTHh6TzZfcyoJgoNwCwsIC21YcIofNjiOg2dxVR8LWUALZ6MwX3KXFKFZR2mQsKwmfn8eArC3E5EDBr0DskZyDUerV5AWKL29tyGVKKQEGh+BRlsH1wasLwEBzozEFT561wdc2twAAJWt00YC5AYDiAHpAKUhBOASNmoI1wPMctSzB6NIil8eNMCK5ybLQHU3IA0ooG/VI1JZ6A2MIQVMRQr3dxZoTMctQxoUYT5OeAYLHQBuJ05ZgKWjncgAIkmK4oRsJiYjCnDSCwDEUZCeH1/MDCqy6KajKBYhW9BTyb1ZGVTuOwq1BNVNkGZQpaoBRVeqmk5olRCqCLJXR49VXatLaZpVsaC+sjJM69cSBvnuCPUmiuDD4CIAACH5BAkKAA0ALAUAFgAgACQAAAT/sMlJm7o1690YI4RiJQlnTh+YMIrHLieXrm4Nx5VCMLR7eSUcpUUjKQSClge3TCiBJKQAsbqZZj1eYoEwSJ2LgVic0e08StJWYDgg1YV4YZBJnGva7WHhFZAYC3F0dWhPHguIe15Uh4IaC0B4NQgLbk8JcxyQNVtZnDRhGwKIC6MTW5s8qY1kFVaIE1wDpIiccq1lBAsXCnwGvwazeIGOGmaHXQe/o2guxIMbOodtB9UGmysBhy0LJVYTT6XVysw8AQABAYZ2JKfOU+PBRQD0ngp2FSSkwQPlCef0AHgC8i0WoFJ+gASkJ+lDQQqgigBcWEPHwyG1Dk0M+OfFxSEHZRGlo5dO3SFAMUApCLAAoDYekoJwWHGhZUt0LgbK3OCk5sqWORvyOGGk549IDT822LXLCC8lu5JqYsGil1GfR9EoXUpzC1deiJ7WxAGLAqmaRlEJ2XC2KtWtQiD9qbLWBCpSEyIAACH5BAUKAA0ALAQAFwAhACMAAAT/sMlJlW0qJcq7lwxDEFbIKMunUuKYmHC6qu1rlsw2ewqRmwmFQKAIyXaVkE0zFCBei4FUiiwCEwhDM5goeAsDGqNhUyYWAsNhqGEsvOFPLWg+HxZaQfsN/vR8MDkaC3daT0p9HwmAgW4LCwiERDFxHjY4jYFlb1QdC0pAC2WhMF1wlROfSkdnj66qJnyJFAKutRYoCAMGvAOwRnAeMiiweLxaqlZGqH6AkGoHBwaqLwHWC0WiDUdJbtDStUrWAOTKOQQaFJsC0dIDSwHkAKMnix2DTtED4Tny5PSrhD0ysE+PEn8AMhHgxuGTK3gIA/VgeC/QgnjyrLU58WgHMVfjZABYO2HEDRIMbq5hDABK0w4b2AJcFAmkkY4VLyzEvFgz001FuLDhsgLQyMsgGYZmMxdrBTZsGlAg1YkLBgqnJHG1QvpI6dUZoupxeyVKa8cdZz9gO1Ek20mwgn5QfMuhlasJEQAAIfkECQoAAAAsAAAAACUAOgAAAi+Ej6nL7Q+jnLTai7PevPsPhuJIluaJpurKtu4Lx/JM1/aN5/rO9/4PDAqHxCKgAAAh+QQJCgANACwDABYAIQAkAAAE/7DJSZVtKiXKu5cMQxBWyCjLp1LimJhwuqrta5bMNnsKkZsJhUCgCMl2lZBNMxQgXouBVIosAhMIQzOYKHgLAxqjYVMmFgLDYahhLLzhTy1oPh8WWkH7Df70fDA5Ggt3Wk9KfR8JgIFuCwsIhEQxcR42OI2BZW9UHQtKQAtloTBdcJUTn0pHZ4+uqiZ8YEcSAq62qQgDBrwDsEYoogQaqalHeLxaqlYnMBkEtBI9FpBqBwcGqi8BAcyhHX9u1ti2SgEAAKMh0Dw+aNfYA0vooz3RSWgI1wPlOejozIIpMvLIAD89Sv6hi5XCl6VBjkSZU5juDIoBBe5xULfg3D9uIXcsKPCikcOrjh5BnihigeSOM9w6ogtwA0iwkhOKLFAQQCZNUKVE4sQArOdPoDapqdgkEoc6JReWrszQtMhTN2dWBGkqiqs3I0g0VO2KQuSNoQ127hSr9NXYHZ9YWshqcmsruC8ylNzZTCeSRzM+vYCCpHArwBIiAAAh+QQJCgANACwDABYAIgAkAAAE/7DJSZVtKiXKu58MQxBWyCjLp3LimJhwuq7ta5bMNn8KkZsJhUCgCMl2nOIvlxgKEK/FYDpFYmAahMEZTBS+hQGN0bCFNAuB4TDUMBZfsaoWPKMPi63ADQ+rej4wTAkLeFtQZ34qCYGCbwsLCIVEMXIfNjiOgmZwVR4LZ0ALZqJYYJ4coGdHhJCuqiZ9BaM6EwKutxORAwa9A7BGkIyMRw1HkLq9vbchSic3OcVJEpFrBwcGqi8BziYE0hM9FnnX2Mw5AQDdRn8jbwLlBgM2CQAApD3gFd9P1wPn9ezhS/GLx6M8//acsWfPGcFZHjgdpJeO4T1CKL7oK+OG1JuK9nYCBGhmQSOSVwtEhhx5osg4YTsIiUwZEtoZCzg3SiiyQEEAmiyXAMGJYoWSnj+DCr05bgUnoko82tEp4QXOIESXxkKCNWdXFOveWNEAddQ4nDeoUgNLtumrsiefXQVnNgOyHaNOEPrQU67Yk2pBvYhiZewrChEAACH5BAUKAA0ALAEAFgAlACMAAAT/sMlJlW0qJcq77wxDEFbIKMunqiORmHC6zpI4vmbJbPQa4juFQKAIyXoeBWH3SwwFiNdiQKUiJ0WTBmF4JjKFcGFwlWR3iYXAcBhqGIswuRdqADXpw6IreMfHdDdfTXl7UDgJgDRKSzBGCwsIC21ncAM8KwmNjpxajlMzODqdPwuccVQLGh2mTKUakLGQnGmqLgRHE607R5EDBsADuznEaR0Csci6wMDIIWeVIbisur1sBwcGrUDRcEgoCNjZzq7lJ9OLuNfZlz8MAQEAQCcpwrkcjGrYA+QJ8AAAz9QrAGkFCigH+PX5EQ8gQFgNBoQpuCKWNlUM/zkMiGLiPQ5SfeDEWACvIccTKGJh8oAHTqwAJE0COPPFgs2PrFTFjAkwwLwgNlH0KLKzYQBzQC3gTAIHHkkAR382oUgDxwIFTo8iNVLGDsqrQeF0W6qiJoqgSm3mIFu25hezkNBeLXP1Kp66cN1S7WGqSFBjsvye8HYFYwZjrJhI6dpgb9cIACH5BAkKAAAALAAAAAAjADgAAAIshI+py+0Po5y02ouz3rz7D4biSJbmiabqyrbuC8fyTNf2jef6zvf+DwwKFwUAIfkECQoADQAsAAAXACkAIQAABP+wySmVbSoltaj/YCgRhMWcZyeuK0MmKKOcCWt7LgGj1syojcHgJsqhNgIBArYQDgpD4kdBYOw0yeQmUehGpR4fTIMwZDU/L3h6TCwEhoOW2V1PGI0dzX1YmJc0UHYjOhtWGgt9Zj4oTRQaNi4xjQsLCIk0k446BEAgVJOhRwuiCwlVbiunMoyiVqSuKASqmTSmbpW5sDGtPyu7rxOWAwbFAyeMrVSeIKSVAkB+xWawejK8zB/QEpUTZQfgBtUx1tnNYQ1+4AdmVwwBAdYfQuYTVBwC6wbHVicBAAABIKLwpEC9CiQsgRsAbQ+8gAEtdChokAU+PwwFjFkA71/EGRKBu3Q5KMxZpR0BOD4EyGiDxFw1WpjSlLIjQGtWeujsBkIDIl3wVAKMN8mlTg4HY1b4EfQh0VBGJYKZoZIjwH6hFlgYKEWP1poAfvQSS1IEjB5fOXLowUProDw7j1aSe+Gthh5RJbrE9VarVp8ctkgEea1sCFIg8XbT1Y9J37NcB0UAACH5BAkKAA0ALAEAFgAoACMAAAT/sMlJlW0qJcq7/w3DEIQlMsoCritJJGessvQ0kvBpMltNizmeQiBQiGY+kILAAyaIAgRsMahWkxzjSYMwQBOZgrgwwFa2iYXAcCBqGAtxGStqBDXpw8IreMfJdDhgTnl7UTkJgElLTDFHCwsIC21aRwM9dpgeCY2OnluOVA0vBEgdOTufQAuekJw8physTasakLeQnkEiBCuzsBORAwbEA786oSsCt8vBxMTLIpWVKKW+wUh7B9sGs7vUKWYNkdsHXt4nAbuxNArjbNyXQAwBAQC7HcbsEksWatsDovGoB6BgQQ0UqhSA9IGRGgQHAvYBYs9gwRQMB4xh2LAUpG4LjRDVq2jR3x8xHBvCWXkC0siSRvxhvKWJAyhcARYQNFgJjIWfP/fhmRJSZ86d6hz5BOrvgyYjRnUWDEBrC9OmNaDWk0p1l1ULafZtOqJgK9WqMm6ZgSETKBxqR8RJWLrgat1U4eRmApsh6N2g7sTVrYtnMF2fYeWyivkzzbhbMVHAUczWlgdWMKbo3dwhAgAh+QQFCgANACwDABYAJwAkAAAE/7DJSZVtKiXKu/8MQxBWyCjLp67imJhwus5U+5ols9G0QuimhEIgUIRkPJURqEsQBYjXYkClJjnLkAZheAoThXBhcA01btrEQmA4EDWMRZictAnT6sOiK4DLx0k+PzBNeXtQN2B0PAmDhHELCwgLbllxizQ3OY+EaHJWNAtaQQtopDBgc6U7H6JaSGqRsq4mso2NSB0CsrsTkgMGwQO0IVlGaipIkb7BwbvF0IQEuTySbQcHBq4vAZZHVwoSe9jZzzoBAKY+1EokKALkBgOJAPXq7B+CawjYA+YJ9QJmwddOlrw3WgIG1LCMwzAlcSCV0oJOYTEUuQYUIIjGVJyK9YUCBLhoQYbGjSo0SJklMuTIE0YslPyDMtMCkTdD4ggiU6atGUYWKAiQ8yUTnj17EpSwRChRo0e1JFWaslbSUY+ETF16BmaGqx6PJEW2QqtPsyi8SZSVREPSUiVl4uDqQahQtyUbzHp7xdcJr2QpwM3QsO9Ewq1i/qXbiq6oF1L6So5VuEMEACH5BAkKAAAALAAAAAAqADQAAAIvhI+py+0Po5y02ouz3rz7D4biSJbmiabqyrbuC8fyTNf2jef6zvf+DwwKh8TiqgAAIfkECQoADQAsAwAWACUAIwAABP+wyUmVbSolyrvvDEMQVsgoy6d+4piYcLrOUvuaJbPRq0LopoRCIFCEZDyPEahLEAWI12JApSYny5AGYXgKE4VwYcALNW7axEJgOBA1jEWYTLMJ0+rDoiuAy8c0Pj8wTXl7UDdgdDMJg4RxCwsIC25ZcYsrNzmPhGhyVisLWkELaKQwYHOYHaJaSGqRsa0mfwWlOx0CsboTkgMGwAOzR5GNjUgUSJG9wMC6IVnROsgfChKSbQcHBq0vAZYhBNQdPhZ72tvPOgEA4HGBI3EC6AYDiQAApj7jSuJQ2gPUJcCXDwaKJEZi1XujhWA7WhyEefAEqZQWdg41LDgoYYCtDxpiXpiKgxFfgADQzDXw+JGGrAUnTaI8YcQCCjH8Oqg5CdMkjiA2URSbkVBBgJ4zmQANqlLFko1HkyrVwrTpRFpMRz0SEjSnhBc2udqcitWCGkZMS3V1J+uK27dw48qdS7cu3AgAIfkECQoADQAsBAAXACMAIwAABP+wyUmVbSolyrunDEMQVsgoy6d24piYcLrO7WuWzDarCpGbCYVAoAjJdp3iL5cYChCvxWA6RUqUIQ3C4AwmCuDCgMZo2LKJhcBwGGoYC/B4VQui04cFV/COi1c9PjBMeHpPNl9zKgmCg3ALCwgLbVhwih82OI6DZ3FVHwtZQAtnozBfcpcUoVlHaZCwrCZ+fx4CsLcTkQMGvQOyRnINR6tXkBYovb23IZUopAQaH4FGWwfXBqwvAQHOjMQVPnrXB1za3AAAla3TRgLkBgOIAekApSEE4BI2agjXA8xy1LMHo0iKXx40wIrnJstAdTcgDSigb9UjUlnoDYwhBUxFCvd3FmhMxy1DGhRhPk54BgsdAG4nTlmApaOdyAAiSYrihGwmJiMKcNILAMRRkJ4fX8wMKrLopqMoFiFb0FPJvVkZVO47CrUE1U2QZlClqgFFV6qaTmiVEKoIsldHj1Vdq0tpmlWxoL6yMkzr1xIG+e4I9SaK4MPgIgAAIfkEBQoADQAsBQAWACAAJAAABP+wyUmbujXr3RgjhGIlCWdOH5gwiscuJ5eubg3HlUIwtHt5JRylRSMpBIKWB7dMKIEkpACxuplmPV5igTBInYuBWJzR7TxK0lZgOCDVhXhhkEmca9rtYeEVkBgLcXR1aE8eC4h7XlSHghoLQHg1CAtuTwlzHJA1W1mcNGEbAogLoxNbmzypjWQVVogTXAOkiJxyrWUECxcKfAa/BrN4gY4aZoddB7+jaC7Egxs6h20H1QabKwGHLQslVhNPpdXKzDwBAAEBhnYkp85T48FFAPSeCnYVJKTBA+UJ5/QAeALyLRagUn6ABKQn6UNBCqCKAFxYQ8fDIbUOTQz458XFIQdlEaWjl07dIUAxQCkIsACgNh6SgnBYcaFlS3QuBsrc4KTmypY5G/I4YaTnj0gNPzbYtcsILyW7kmpiwaKXUZ9H0ShdSnMLV16IntbEAYsCqZpGUQnZcLYq1a1CIP2pstYEKlITIgAAIfkECQoAAAAsAAAAACAAOAAAAiqEj6nL7Q+jnLTai7PevPsPhuJIluaJpurKtu4Lx/JM1/aN5/rO9/6vKQAAIfkECQoADQAsBAAXACEAIwAABP+wyUmVbSolyruXDEMQVsgoy6dS4piYcLqq7WuWzDZ7CpGbCYVAoAjJdpWQTTMUIF6LgVSKLAITCEMzmCh4CwMao2FTJhYCw2GoYSy84U8taD4fFlpB+w3+9HwwORoLd1pPSn0fCYCBbgsLCIREMXEeNjiNgWVvVB0LSkALZaEwXXCVE59KR2ePrqomfIkUAq61FigIAwa8A7BGcB4yKLB4vFqqVkaofoCQagcHBqovAdYLRUc8RtDStUrWAOLKKpsC0dIDSwHiAKMrg07RA9857eLvM64G9HpK9wACIfnkah1AgUhGuWHXzlqbE0gwvFoQDoC1E0bcRMx2jWEAUAhMZ9jAFoCiRSCNEp5AoaDkR5Ah4eHChsuKwhARNVgIUtONMhM7sGHTKaomzZ9BMeJqxfNRzQtBX2TQNpFnhogNHq3AtnIM1q9gw1KIAAAh+QQJCgANACwDABYAIQAkAAAE/7DJSZVtKiXKu5cMQxBWyCjLp1LimJhwuqrta5bMNnsKkZsJhUCgCMl2lZBNMxQgXouBVIosAhMIQzOYKHgLAxqjYVMmFgLDYahhLLzhTy1oPh8WWkH7Df70fDA5Ggt3Wk9KfR8JgIFuCwsIhEQxcR42OI2BZW9UHQtKQAtloTBdcJUTn0pHZ4+uqiZ8YEcSAq62qQgDBrwDsEYoogQaqalHeLxaqlYnMBkEtBI9FpBqBwcGqi8BAcyhHX9u1ti2SgEAAKMh0Dw+aNfYA0vooz3RSWgI1wPlOejozIIpMvLIAD89Sv6hi5XCl6VBjkSZU5juDIoBBe5xULfg3D9uIXcsKPCikcOrjh5BnihigeSOM9w6ogtwA0iwkhOKLFAQQCZNUKVE4sQArOdPoDapqdgkEoc6JReWrszQtMhTN2dWBGkqiqs3I0g0VO2KQuSNoQ127hSr9NXYHZ9YWshqcmsruC8ylNzZTCeSRzM+vYCCpHArwBIiAAAh+QQFCgANACwDABYAIgAkAAAE/7DJSZVtKiXKu58MQxBWyCjLp3LimJhwuq7ta5bMNn8KkZsJhUCgCMl2nOIvlxgKEK/FYDpFYmAahMEZTBS+hQGN0bCFNAuB4TDUMBZfsaoWPKMPi63ADQ+rej4wTAkLeFtQZ34qCYGCbwsLCIVEMXIfNjiOgmZwVR4LZ0ALZqJYYJ4coGdHhJCuqiZ9BaM6EwKutxORAwa9A7BGkIyMRw1HkLq9vbchSic3OcVJEpFrBwcGqi8BziYE0hM9FnnX2Mw5AQDdRn8jbwLlBgM2CQAApD3gFd9P1wPn9ezhS/GLx6M8//acsWfPGcFZHjgdpJeO4T1CKL7oK+OG1JuK9nYCBGhmQSOSVwtEhhx5osg4YTsIiUwZEtoZCzg3SiiyQEEAmiyXAMGJYoWSnj+DCr05bgUnoko82tEp4QXOIESXxkKCNWdXFOveWNEAddQ4nDeoUgNLtumrsiefXQVnNgOyHaNOEPrQU67Yk2pBvYhiZewrChEAACH5BAkKAAAALAAAAAAjADoAAAIthI+py+0Po5y02ouz3rz7D4biSJbmiabqyrbuC8fyTNf2jef6zvf+DwwKh5ICACH5BAkKAA0ALAEAFgAlACMAAAT/sMlJlW0qJcq77wxDEFbIKMunqiORmHC6zpI4vmbJbPQa4juFQKAIyXoeBWH3SwwFiNdiQKUiJ0WTBmF4JjKFcGFwlWR3iYXAcBhqGIswuRdqADXpw6IreMfHdDdfTXl7UDgJgDRKSzBGCwsIC21ncAM8KwmNjpxajlMzODqdPwuccVQLGh2mTKUakLGQnGmqLgRHE607R5EDBsADuznEaR0Csci6wMDIIWeVIbisur1sBwcGrUDRcEgoCNjZzq7lJ9OLuNfZlz8MAQEAQCcpwrkcjGrYA+QJ8AAAz9QrAGkFCigH+PX5EQ8gQFgNBoQpuCKWNlUM/zkMiGLiPQ5SfODEWACvIccTKGJh8oAHTqwAJE0COPPFgs2PrFTFjAkwwLwgNlH0KLKzYQBzQBWUIQqPJICjP5vg/IBjgYKmR5EaKWMHpdWgcLpNVVETRVALX6GNJVvzS1lIZ62WsWoVD923bSkiMVUkqDFZfU94u4IxgzFWTKRwbaB3cQQAIfkECQoADQAsAAAXACkAIgAABP+wySmVbSoltaj/YCgRhMWcZyeuK0MmKKOcCWt7LgGj1syojcHgJsqhNgIBArYQDgpD4kdBYOw0yeQmUehGpR4fTIMwZDU/L3h6TCwEhoOW2V1PGI0dzX1YmJc0UHYjOhtWGgt9Zj4oTRQaNi4xjQsLCIk0k446BEAgVJOhRwuiCwlVbiunMoyiVqSuKASqmTSmbpW5sDGtPyu7rxOWAwbFAyeMrVSeIKSVAkB+xWawejK8zB/QEpUTZQfgBtUx1tnNYQ1+4AdmVwwBAdYfQuYTVBwC6wbHVicBAAABIKLwpEC9CiQsgRsAbQ+8gAEtdChokAU+PwwFjFkA71/EGRKFu3Q5KMxZpR0BOD4EyGiDxFw1WpjSlLIjQGtWeujsBkIDIl3wVAKMN8mlTg4HY1b4EfQh0VBGJYKZoZIjwH6hFlgYKEWP1poAfvQSS1IEjB5fOXLowUProDw7j1aSe+Gthh5RJbrE9VarVp8ctkgEea1sCFIg8XbT1Y9J37Nc3xLhKblBBAAh+QQFCgANACwBABYAKAAjAAAE/7DJSZVtKiXKu/8NwxCEJTLKAq4rSSRnrLL0NJLwaTJbTYs5nkIgUIhmPpCCwAMmiAIEbDGoVpMc40mDMEATmYK4MMBWtomFwHAgahgLcRkragQ16cPCK3jHyXQ4YE55e1E5CYBJS0wxRwsLCAttWkcDPXaYHgmNjp5bjlQNLwRIHTk7n0ALnpCcPKYcrE2rGpC3kJ5BIgQrs7ATkQMGxAO/OqErArfLwcTEyyKVlSilvsFIewfbBrO71ClmDZHbB17eJwG7sTQK42zcl0AMAQEAux3G7BJLFmrbA6LxqAegYEENFKoUgPSBkRoEBwL2AWLPYMEUDAeMYdiwFKRuC44Q1ato0d8fMRwbwll5AtLIkkb8YbyliQMoXAEWEDRYCYyFnz/34ZkSUmfOneoc+QTq74MmI0Z1FgxAawvTpjWg1pNKdZdVC2n2bTqiYCvVqjJumYEhEygcakfESVi64GrdVOHkZgKbIejdoO7E1a2LZzBdn2Hlsor5M824WzFRwFHM1pYHVjCm6H28eUIEACH5BAkKAAAALAAAAAApADkAAAIxhI+py+0Po5y02ouz3rz7D4biSJbmiabqyrbuC8fyTNf2jef6zvf+DwwKh8Si8fgrAAAh+QQJCgANACwDABYAJwAkAAAE/7DJSZVtKiXKu/8MQxBWyCjLp67imJhwus5U+5ols9G0QuimhEIgUIRkPJURqEsQBYjXYkClJjnLkAZheAoThXBhcA01btrEQmA4EDWMRZictAnT6sOiK4DLx0k+PzBNeXtQN2B0PAmDhHELCwgLbllxizQ3OY+EaHJWNAtaQQtopDBgc6U7H6JaSGqRsq4mso2NSB0CsrsTkgMGwQO0IVlGaipIkb7BwbvF0IQEuTySbQcHBq4vAZZHVwoSe9jZzzoBAKY+1EokKALkBgOJAPXq7B+CawjYA+YJ9QJmwddOlrw3WgIG1LCMwzAlcSCV0oJOYTEUuQYUIIjGVJyK9YUCBLhoQYbGjSo0SJklMuTIE0YslPyDMtMCkTdD4ggiU6atGUYWKAiQ8yUTnj17EpSwRChRo0e1JFWaslbSUY+ETF16BmaGqx6PJEW2QqtPsyi8SZSVREPSUiVl4uDqQahQtyUbzHp7xdcJr2QpwM3QsO9Ewq1i/qXbiq6oF1L6So5VuEMEACH5BAkKAA0ALAMAFgAlACQAAAT/sMlJlW0qJcq77wxDEFbIKMunfuKYmHC6zlL7miWz0atC6KaEQiBQhGQ8jxGoSxAFiNdiQKUmJ8uQBmF4ChOFcGHACzVu2sRCYDgQNYxFmEyzCdPqw6IrgMvHND4/ME15e1A3YHQzCYOEcQsLCAtuWXGLKzc5j4RoclYrC1pBC2ikMGBzmB2iWkhqkbGtJn8FpTsdArG6E5IDBsADs0eRjY1IFEiRvcDAuiFZ0TrIHwoSkm0HBwatLwGWIQTUHT4We9rbzzoBAOBxgSNxAugGA4kAAKY+40riUNoD1CXAlw8GiiRGYtV7o4VgO1ochHnwBKmUFnYONSw4KGGArQ8ahV6YioMRX4AA0Mw18PiRhqwFJ02iPGHEAgox/DqoOQnTJI4gNlEUm5FQQYCeM5kADapSxZKNR5Mq1cK06URaTEc9EhI0p4QXNrnanIrVghpGTEt1dScriYa0XDdu4shj48a3KmWlvdJAVE2z49RmWHbF4uAPG08o9oqYcV8gUvhegUWYQwQAIfkEBQoADQAsBAAXACMAIwAABP+wyUmVbSolyrunDEMQVsgoy6d24piYcLrO7WuWzDarCpGbCYVAoAjJdp3iL5cYChCvxWA6RUqUIQ3C4AwmCuDCgMZo2LKJhcBwGGoYC/B4VQui04cFV/COi1c9PjBMeHpPNl9zKgmCg3ALCwgLbVhwih82OI6DZ3FVHwtZQAtnozBfcpcUoVlHaZCwrCZ+fx4CsLcTkQMGvQOyRnINR6tXkBYovb23IZUopAQaH4FGWwfXBqwvAQHOjMQVPnrXB1za3AAAla3TRgLkBgOIAekApSEE4BI2agjXA8xy1LMHo0iKXx40wIrnJstAdTcgDSigb9UjUlnoDYwhBUxFCvd5FmhMxy1DGhRhPk54BgsdAG4nTlmApaOdyAAiSYrihGwmJiMKcNILAMRRkJ4fX8wMKrLopqMoFiFb0FPJvVkZVO47CrUE1U2QZlClqgFFV6qaTmiVEKoIsldHj1Vdq0tpmlWxoL6yMkzr1xIG+e4I9SaK4B2vYHGIAAAh+QQJCgAAACwAAAAAJwA4AAACL4SPqcvtD6OctNqLs968+w+G4kiW5omm6sq27gvH8kzX9o3n+s73/g8MCofE4qoAACH5BAkKAA0ALAUAFgAgACIAAAT/sMlJm7o1690YI4RiJQlnTh+YMIrHLieXrm4Nx5VCMLR7eSUcpUUjKQSClge3TCiBJKQAsbqZZj1eYoEwSJ2LgVic0e08StJWYDgg1YV4YZBJnGva7WHhFZAYC3F0dWhPHguIe15Uh4IaC0B4NQgLbk8JcxyQNVtZnDRhGwKIC6MTW5s8qY1kFVaIE1wDpIiccq1lBAsXCnwGvwazeIGOGmaHXQe/o2guxIMbOodtB9UGmysBhy0LJVYTT6XVysw8AQABAYZ2JKfOU+PBRQD0ngp2FSSkwQPlCef0AHgC8i0WoFJ+gASkJ+lDQQqgigBcWEPHwyG1Dk0M+OfFxSEHWxGlo5dO3SFAMUApCLAAoDYekoJwWHGhZUt0LgbK3OCk5sqWORvyOGGk549IDT822LXLCC8lu5JqYsGil1GfR9EoXUpzC1deiJ7WxAGLAqmaRlEJ2XC2KtUbEQAAIfkECQoADQAsBAAXACEAIwAABP+wyUmVbSolyruXDEMQVsgoy6dS4piYcLqq7WuWzDZ7CpGbCYVAoAjJdpWQTTMUIF6LgVSKLAITCEMzmCh4CwMao2FTJhYCw2GoYSy84U8taD4fFlpB+w3+9HwwORoLd1pPSn0fCYCBbgsLCIREMXEeNjiNgWVvVB0LSkALZaEwXXCVE59KR2ePrqomfIkUAq61FigIAwa8A7BGcB4yKLB4vFqqVkaofoCQagcHBqovAdYLRaINR0lu0NK1StYA5Mo5BBoUmwLR0gNLAeQAoyeLHYNO0QPhOfLk9KuEPTKwT48SfwAyEeDG4ZMreAgD9WB4L9CCePKstTnxaAcxV+NeAFg7YcQNEgxurmEMAErTDhvYAlwUCaSRjhUvLMS8WDPTTUW4sOGyAtDIyyAZhmYzF2sFNmwaUCDViQsGCqckcbVC+kjp1Rmi6nF7JUprxx1nP2A7USTbybdw43aIAAAh+QQFCgANACwDABYAIQAkAAAE/7DJSZVtKiXKu5cMQxBWyCjLp1LimJhwuqrta5bMNnsKkZsJhUCgCMl2lZBNMxQgXouBVIosAhMIQzOYKHgLAxqjYVMmFgLDYahhLLzhTy1oPh8WWkH7Df70fDA5Ggt3Wk9KfR8JgIFuCwsIhEQxcR42OI2BZW9UHQtKQAtloTBdcJUTn0pHZ4+uqiZ8YEcSAq62qQgDBrwDsEYoogQaqalHeLxaqlYnMBkEtBI9FpBqBwcGqi8BAcyhHX9u1ti2SgEAAKMh0Dw+aNfYA0vooz3RSWgI1wPlOejozIIpMvLIAD89Sv6hi5XCl6VBjkSZU5juDIoBBe5xULfg3D9uIXcsKPCikcOrjh5BnihigeSOM9w6ogtwA0iwkhOKLFAQQCZNUKVE4sQArOdPoDapqdgkEoc6JReWrszQtMhTN2dWBGkqiqs3I0g0VO2KQuSNoQ127hSr9NXYHZ9YWshqcmsruC8ylNzZTCeSRzM+vYCCpHArwBIiAAAh+QQJCgAAACwAAAAAIwAzAAACKoSPqcvtD6OctNqLs968+w+G4kiW5omm6sq27gvH8kzX9o3n+s73/j8pAAAh+QQJCgANACwDABYAIgAkAAAE/7DJSZVtKiXKu58MQxBWyCjLp3LimJhwuq7ta5bMNn8KkZsJhUCgCMl2nOIvlxgKEK/FYDpFYmAahMEZTBS+hQGN0bCFNAuB4TDUMBZfsaoWPKMPi63ADQ+rej4wTAkLeFtQZ34qCYGCbwsLCIVEMXIfNjiOgmZwVR4LZ0ALZqJYYJ4coGdHhJCuqiZ9BaM6EwKutxORAwa9A7BGkIyMRw1HkLq9vbchSic3OcVJEpFrBwcGqi8BziYE0hM9FnnX2Mw5AQDdRn8jbwLlBgM2CQAApD3gFd9P1wPn9ezhS/GLx6M8//acsWfPGcFZHjgdpJeO4T1CKL7oK+OG1JuK9lICBGhmQSOSVwtEhhx5osg4YTsIiUwZEtoZCzg3SiiyQEEAmiyXAMGJYoWSnj+DCr15YQUnoko82tEp4QXOIESXxrLCtavXr2DDih1LtqzZDxEAACH5BAkKAA0ALAEAFgAlACMAAAT/sMlJlW0qJcq77wxDEFbIKMunqiORmHC6zpI4vmbJbPQa4juFQKAIyXoeBWH3SwwFiNdiQKUiJ0WTBmF4JjKFcGFwlWR3iYXAcBhqGIswuRdqADXpw6IreMfHdDdfTXl7UDgJgDRKSzBGCwsIC21ncAM8KwmNjpxajlMzODqdPwuccVQLGh2mTKUakLGQnGmqLgRHE607R5EDBsADuznEaR0Csci6wMDIIWeVIbisur1sBwcGrUDRcEgoCNjZzq7lJ9OLuNfZlz8MAQEAQCcpwrkcjGrYA+QJ8AAAz9QrAGkFCigH+PX5EQ8gQFgNBoQpuCKWNlUM/zkMiGLiPQ5SfeDEWACvIccTKGJh8oAHTqwAJE0COPPFgs2PrFTFjAkwwLwgNlH0KLKzYQBzQC3gTAIHHkkAR382oUgDxwIFTo8iNVLGDsqrQeF0W6qiJoqgSm3mIFu25hezkNBeLXP1Kp66cN1S7WGqSFBjsvye8HYFYwZjrJhI6dpgb9cIACH5BAUKAA0ALAAAFwApACIAAAT/sMkplW0qJbWo/2AoEYTFnGcnritDJiijnAlrey4Bo9bMqI3B4CbKoTYCAQK2EA4KQ+JHQWDsNMnkJlHoRqUeH0yDMGQ1Py94ekwsBIaDltldTxiNHc19WJiXNFB2IzobVhoLfWY+KE0UGjYuMY0LCwiJNJOOOgRAIFSToUcLogsJVW4rpzKMolakrigEqpk0pm6VubAxrT8ru68TlgMGxQMnjK1UniCklQJAfsVmsHoyvMwf0BKVE2UH4AbVMdbZzWENfuAHZlcMAQHWH0LmE1QcAusGx1YnAQAAASCi8KRAvQokLIEbAG0PvIABLXQoaJAFPj8MBYxZAO9fxBkShbt0OSjMWaUdATg+BMhog8RcNVqY0pSyI0BrVnro7AZCAyJd8FQCjDfJpU4OB2NW+BH0IdFQRiWCmaGSI8B+oRZYGChFj9aaAH70EktSBIweXzly6MFD66A8O49WknvhrYYeUSW6xPVWq1afHLZIBHmtbAhSIPF209WPSd+zXN8S4Sm5QQQAIfkECQoAAAAsAAAAACQANwAAAiyEj6nL7Q+jnLTai7PevPsPhuJIluaJpurKtu4Lx/JM1/aN5/rO9/4PDAo/BQAh+QQJCgANACwBABYAKAAjAAAE/7DJSZVtKiXKu/8NwxCEJTLKAq4rSSRnrLL0NJLwaTJbTYs5nkIgUIhmPpCCwAMmiAIEbDGoVpMc40mDMEATmYK4MMBWtomFwHAgahgLcRkragQ16cPCK3jHyXQ4YE55e1E5CYBJS0wxRwsLCAttWkcDPXaYHgmNjp5bjlQNLwRIHTk7n0ALnpCcPKYcrE2rGpC3kJ5BIgQrs7ATkQMGxAO/OqErArfLwcTEyyKVlSilvsFIewfbBrO71ClmDZHbB17eJwG7sTQK42zcl0AMAQEAux/sEksWatsD0XjUA0CQoAYKV8Z9YKQGwQGAfYDYK0gwBaQGA8RI0LevFKRuC4kQ1ZtIsd+fAhtXGGF1DNLIkkb6WbyliQMoXAEWDCxYCYyFnz8/4JkSUmfOneoc+QR6QegZozoJBqC1hWk/HyvrRZ26q2pTjqeOKNA6laqMW2ZgyAQKh9oRcRKWLrA6N1U4uJksgJFb9+dcuHPn4gks12casL5QoPiZZtytmIoR4w3WZMrkyxQiAAAh+QQJCgANACwDABYAJwAkAAAE/7DJSZVtKiXKu/8MQxBWyCjLp67imJhwus5U+5ols9G0QuimhEIgUIRkPJURqEsQBYjXYkClJjnLkAZheAoThXBhcA01btrEQmA4EDWMRZictAnT6sOiK4DLx0k+PzBNeXtQN2B0PAmDhHELCwgLbllxizQ3OY+EaHJWNAtaQQtopDBgc6U7H6JaSGqRsq4mso2NSB0CsrsTkgMGwQO0IVlGaipIkb7BwbvF0IQEuTySbQcHBq4vAZZHVwoSe9jZzzoBAKY+1EokKALkBgOJAPXq7B+CawjYA+YJ9QJmwddOlrw3WgIG1LCMwzAlcSCV0oJOYTEUuQYUIIjGVJyK9YUCBLhoQYbGjSo0SJklMuTIE0YslPyDMtMCkTdD4ggiU6atGUYWKAiQ8yUTnj17EpSwRChRo0e1JFWaslbSUY+ETF16BmaGqx6PJEW2QqtPsyi8SZSVREPSUiVl4uDqQahQtyUbzHp7xdcJr2QpwM3QsO9Ewq1i/qXbiq6oF1L6So5VuEMEACH5BAkKAA0ALAIAFgAmACQAAAT/sMlJlW0qJcq79wxDEFbIKMunquKYmHC6zlP7miWz0bNC6KaEQiBQhGS8jxGoSxAFiNdiQKUmKzANwvAUJgrgwiAZatxCmoXAcCBqGAvwmGcTotOHBVfwjot5Pj8wTQkLeVxRaH88CYKDcAsLCIZFMVY0NzmPg2dwYnMqC2hBC51oollhlx+oOimRhZGyrSZ+BaU7HQKyu5JsBwcGtIOyjY1IFEiyv8G7myFLJ640asDBA6ZLAdEmBMgeagjAA85ZDAEBANxH1JEG5HxZ6OkAnT7frJClQQnzAP/28KkwVSrAAn//1NXiMECgGX2y0B1ElxBgIRQTBtwa+MbCxIkVfdFB89hA48YkHykCEHnCiAUUYRx2KCSRXgAcQV6igEXDyAIFBtPdHJVF50uZEpb8DGquqFGMA2sZJcrJKNKHL4XoZEIs61UzVrV6XAfxioawYzVBRYkig9hXsqxekSDKpYVCHUrdjTS3wb4MDn9K89nX71VRL6QUThKLb4cIACH5BAkKAA0ALAMAGgAlACAAAAT/sMlJVVMp0c27V6DCjMqyeCg6EsnojloqSwzBvqB7zml9MwmFQCBiLAZIJK9CAMISQwEimChYC4PlpNjKIAzRjNGa1UqKsIXAcBiKF2Rzo+XKLA4LsIBeLS+fIhkJd3lSL0Z+Mj6HgyYId0R0I0czCjaHk5iYcEkoCU0MaJpAC4xXCxkddGiDLSavJpuoLAQ7FKVOgw0mCQcHBriYaIG2t5MCjmy/yDgkmLUeyAslJsoGA5JAAQGikyg7lmq+bcEj2wDZ4RMDxbdSvgN7LwkBAOg4tgMF7ROv1/JPztlDM+2Evn2qjBiJZYTetnr2AOQIAccKPwmCdCwIsFHgwDohYaihSgFrW0eIAbIBCUkxhYiOGyMGcDKPJYiLGCcp4IiSJiOWOHPetOnzxTQQulIECbE05LRN1GZMy0CxaYkQLq4uKRWoKS9qQIN2QBUqab9XSwcZkWNCRqkua+XwaNSWQwQAIfkECQoADQAsAwAbACUAHwAABP+wyUlVUympRbv/niIqTFlyYPqVBGGWJJOo9NQSiTmezeAPtVUrJ1MIBIjcYlBoAoMUFzFzPGoSzcITKolNEYZqhrFwciexUmIhMBysSu0ZbcosDotwUr08lxpTdnhhaX9nQxpqdgh3anVcDC4vJwsva5NLWyAKLZOefJhOCxkgCS4ifEoLq5Weq6amKB1TJg2vBwcGrZNpJGsfuzKrYLhhwSSFLLIdrGyrbrkDRI4MyWQpAl2rAri5wQkBAQDT1QTLKZxIuAMC0+AA4y8bEz7naKwG7O7h8ADIyByYFLAHiEwlVifA8euXRsOqJgQBrZnGaiGAcOSKbBhYo2KABeJU4AWgVmfEKxprRHwUF46kpREiIkpQpWClpU8LYM5L4TCnzhPWfMZUkTNDTA0wherw+YtoNRlIR0UVGnMVl1HVmkpoNkrEJZkgrDrNoWQOlDWsPEQAACH5BAkKAA0ALAMAGgAlACAAAAT/sMlJVVMpqUW7/54iKkxZcmD6lQRhliSTqPTUEok5ns3gD7VVKydTCASI3GJQaAKDFBcxczxqEs3CEyqJTRGGaoaxcHInsVJiITAcrErtGW3KLA6LcFK9PJcaU3Z4YWlqZ0MaanYId2ovfTUMLi8nlGuUZT8pCi2UnnyWWQsZIAkuInxKC6sLn6umpigdUzyvBwcGrZ5pJGsfunwLYLdhwAwkhSyyHQKszXnEA0RqAQHJZBMDywJdqwK3uMYJ1QDTxwQoTMsVBEi3AwLT4wDlLxscTAXraKwG8PLk6KVZcE/UB1VkVp0YF5CeBmQb7o06uGYaq2oB6NGzVmeEx30UXS4GWIBxYwBzRTxuoLGhGkmNARy9eDgCJAUlCkZmBBBTxqeHvmjkiKhSJqZVUGjS3EHQk81fGB6OUkkQFYynHlr1kjr1HlWsWYcGlcDqlYhLYLOCbZVDyZykZT1EAAAh+QQJCgANACwDABIAIwAoAAAE/7DJSVVTKalFu/+VIjIkyYFoRxJEyShkks4SSySuIsBMM/wDWoeFY2gEAgRusSg4C0FhzRhLIJGaRBMqlfCKCYThmmFso1JebCEwHLC4BLd7KWUWh8VYWVqgZyQNGlVaeWNqPVJERUZaCwh4MX1/ICwufZdaLk0/KAotl6EmCy5yTp0fRSNGC0tMTKFbcx5gJg1MCQcHBqSxpyiwa49uuwK9JGp+tyjGTM3EBgOMVAHVancyFAITzrpvx0bVAADTLxnZIEm6AwKMCQHj5JcwBCcfr9HtJeLxoqwgG0i9MvEOXjw1n8zY8/DpRh8m1QyOU/Vpoad6EAMs4DeumqMNaZT6VNtosNo8CzTckdzYMQcMEVLOaVGgEV6AHHZQSqDE0ATNjfNy7ixgsacZEUjtZPLhpCgFRhiQriqn4YnTCTiktpJaTthVrFKRbsUgaoGIVik0hAWJq6zWtGrFckPkUy7cuPbMrnrRiomQuEi56RX7tYPZwRgsjnUkhdRLLfdeBuzS6kUKUlnN0FmWFrPmzUJedYgAACH5BAkKAA0ALAUAAQAjACkAAAT/sMlJpbpNpVS77wwREhdjKl/qjURivsyizplItHAp059iuj+FQODj8Dw+BnAzFCBMu6OpAXxtEIamazHodlWjTVKZWAgMh2FCU2gXBinFDfbbLA6LrGATa8NTCSJ0ZGV4WQh8C34qQCUwC5AId05LbyoLP1aYg4NcNJtKMgtVmlVHApBmqaOrqTBHUalYB7QGoI9HFGZotaicirkNZgi0BwYDpDAJb3+fkLQDvnRJigWePJjHaspVOhxRSBJlkFV8AQwBAWNKLUYVco4vrOnpAADJPgTgE3IirekL6Nm7x6lMD0FQAAocuM6EvgYD9ll4pDDAwIE5Hg6w1iHZAgUBiwIOpBcgESSIbSRS4XMhoEgA5x5daOlGZYePIWPm8DGzJTlGSnpOs9Kzp80xo2ZaobOmqIKjJ1oKTdbU6IduMzNcSBZkq00qDJyKGvUr1YyqViV87JRLjNEdH+M9Dbahaqy4M7/efNrT3YSkGvRWwMTToAe8c2FtSbHWx8lgn5SEjQGZxrjFlbGpjAAAIfkECQoADQAsBgAAACUAJwAABP+wyTkZuUSpphL9YEgpWJIwjIJ6YhuSjInO6eK2qKSudLrbt5GFIOuZFALBihWUJC6rXcyESAp+TWePZkosBAbrCdhcoDRc0+KwTiY6i4G8HKMRGIs8OyyQFf5zLkpcZjMLCAthCDILfwUDN3l5AjYLJz0HAosojY9ZEpSHloVbMY+QnxJ5BgYHbHkxloaon5Out6ySpAypE18IuANJuzRxvasHwgOXpQmntXhffaU9nYG+IpeyW2/FBY20DQNkILBcdT1olg1AA98vqroJAUUB9gFSMUQJ7u8jGRoCLrA38B4AAMzOWOiUx8sEEneKETR4MOEMLxoWCHwYkdNEewePD+ZDQUBjwIBCJAYoGDIkDRImTyogYxHPx5b2GMWU6XBCFx8aVwY4eO+MCpknyYUYowBkgJcXZ0qdmceFiphPz3Fhx07p0qgBLzZLdULgGzToqpFFulPjFq83jiQVGPYMXBdnk+qaebZnFo07M46QeSyFDzgfAt9tIQtxiLaLGUd2exRPLzonxlxu4kWSiwgAIfkECQoADQAsBgAAACMAKQAABP+wyUkbYyrXzbtkREhoSuKdlSImyaVcJoqqDHvd2CJXl/TCOMxPt3uFbEGWQiCAxWSJEOxXYyGYguGuFbyxEguBAdsiohYuahV8WByYidJiQD/XcATGYt8eC2wFgXUdTThgOAsIC2MINguBBQMee3sCOgtcOG+NF4+ROw2WiZhoXTCRkqANewYGB217NZg3c6qVr7itlKU9qqsCCLkDTLw4vhKsB8MDmaa1O2iVf6aGkZhPHlyzXXG0mARRZhwqsYZ3OFQvYKsdKgS7mAGHN2oX7wMF4hQ03gHyF/7q6WmAbw8YMwIX+FPoLwCAZuQIBlqQgUgzWgsbAtgIUUfBDAqVzHzBGIChw40bqewCCXJcyIwnUXIEw7KmPgoMGcr0l6YmyxMUS55siM4nyD1AFfgDECBIBiE+kY7TA7KpUy9Rb074EQekOUMhQ7LrkClkVyoXD26BWpHlRRigzroF+XZgXLkhV3bRSrbEWTMUn7rgW4FiYJaAD1cEheYF3ZuYMqiF1kJOB4oYMhPeIHXSnTLHoOzqEAEAIfkECQoADQAsBQAKACMAJAAABP+wyUmluk2lVLvvTEgQV8goX+oxI5GY5qLOWfuaJSPTnxLejIRCIPBxeB5f8JcgChChHTLUADIRBudrMeh2VSyX0LRZCAwHojBRaBcGKcUIxkwsDousYKNrw1MJBHR1d3lqW34qNzkxCwsId083bAN2Hws/ZIM4SjoLgY6XZAsEn4MvQG2CoB4Cjmavn7GvMAWYPqUeUq9YB74GmDoxdKGKZmi/roOdJwQ0Zgi+BwaVgwEBdCjFuo6+A8rZAIxRtiqO1Gp0CQDsVgwDtp8NUhSepnXs7WN28PEK9BPcfbqWL98FefAWXPjH7VWABdcCFAQQ4qCjhQvNXYMoMd+1ihhyQwKswJEju48nfITEaGxjR2wVyaz8N9KCDgUPJcJcAkMIxm0dlCjM2VPdz5oSgCjEmOkUQ6RJU2oIyZMYEp8LP/1kFgVJFawHfS7txPDZPw1YZcQSieSWVEskfdqBGvcE3A4KT+ilS5IvJlQ6vF6N5SECACH5BAkKAA0ALAQAEAAmACQAAAT/sMlJlW0qJcq79wxDEFbIKMunquKYmHC6zlP7miWz0bNC6KaEQiBQhGS8jxGoSxAFiNdiQKUmKzANwvAUJgrgwiAZatxCmoXAcCBqGAvwmGcTotOHBVfwjot5Pj8wTQkLeVxRaH88CYKDcAsLCIZFMXOFKzc5j4NnYguNkSoLaEGgj4UwYT+FSB2kaAsooJG1kTEFL0YEKwK1vpJsBwcGsIPGR64cSLXCxL6cSyE+V2rDxANn0wHcgyg8agjDA9BZAQAAm0fgkQbkfObo6NoM1ZCnd+fyABpGmBIDlHWgB4qbvn0WQFEoIPCVrQALDO4DMO0bwAEMk0SEyG1ftxMXgACCUUhj40Z0H0tY+DZSlsVR3CKixBFkpcuVLz0UUsARQIAgnXAKbShhiSyOWYIKTbjCqNBSqJbu+HAmw1N6R4YSlaDLphCb0kxESrh1wtehX2/ikFF2gqx+OFPYGnpFAil/Z5WBstCqboNTGYjKOkG4rQdRK0i9kOL3SivEHiIAACH5BAkKAA0ALAMAGgAlACAAAAT/sMlJlW0qJcq77wxDEFbIKMunfuKYmHC6zlL7miWz0atC6KaEQiBQhGQ8jxGoSxAFiNdiQKUmJ8uQBmF4ChOFcGHACzVu2sRCYDgQNYxFmEyzCdPqw6IrgMvHND4/ME15e1A3YHQzCYOEcQsLCAtuWXFWjCE5j4RocWOYHgtaQQueWqMwYGGmOx2pOimRapG1sCazBI1IFAK1vpJtBwcGtzBZRmqiE7XCxL6cliEEvEprw8QDpwoBAdJxNGsIwwPQqt0Anj5IA9USzeV95wEA6cfsBe7vkKZBCd306mVZgKLBAFYeXpwytQBgQIFGLKAQo+8MrVrdGqKrByCLEIm1YFx9MKJRY8AApz5KtFBRAsmMDwMwCbISpIobBAM0rCfzlJaaLc+cQFEzGSeCFpStUJmhKMFHBCOFy6DS1EqkyAgmGZWsqtVIQIO+epGhmq2PasBdaSB1xSiFatfyuKgvAgAh+QQJCgANACwDABsAJQAfAAAE/7DJSVVTKdHNu1egwozKsngoOhLJ6I5aKksMYb+ge85pzcIKgUDEWAyOR16FwGg1E0IBIoEpWAsD5YToTCAM0UzRmtVKiLCFwHAQihdkc8MJSywOC7CgizXXRRl2eGAIL0VlMz6GdiYId0N0MTMKN4ZFlpZGMwlMDGiYTQuGcEcLGR1OaHYtJq0mmaYsBDsUok2hDSYJBwcGtpZogLS1I2qNbL0Cv54klrMeygslJsgGA3S3zKMoO5RqvG3LDAEBANjePGoIvAN7Lwnl5jjDKa3W7nXkAPsiOSUSpVBdalUMHrl4/FxQMWKF3oRAOhYEkKgPADlsTRRccbjBFTmJ+1cswlgEAg7HDawUTIwXYKQlKtMkeWhRQiVFhZikhfiHAqbOncU+Bd15MhcGnzBD/HRRU2k9ZhlKmpK6c5o0OzNMecI6wdVUDKKKejAhQ1QLVnKUMCK7IQIAIfkECQoADQAsAwAbACUAHwAABP+wySmVbSoltaj/4EcQFmOaXaiGzJicjGImaz21xHtaMpM2g4HtgzttBALEaxEcFITDiYLA0GmQyE2iwIVGK7NqAmHAanzdr9SYWAgMh+ySq2Y0dLP2YVFWzp5qLhtienwCPSdMXistMIkLCwgLB2GJT0EqU46bRguOW1wLGiAJVCWcnZuQpaU/E1adGpCzkI6IMm0fnp0TkQMGwAMmPYgnBK69Pm4LPHzAZbsJAQHFKCECKZBUDGQH3gbRAQB4MccTA64/mj5w3wJW4zAc5wXIaygC3gcGwlUA/4iYdXBSjxSMSN4GYJvxD6CMZlwKkpKFjV8Wfw0RbWi2akWtWTpbxAEIQK4Kj5P2KIhytOBfgCqfTjZToYNWy5EwN22cSTMGB5m4ODGzkGvFzgxAmanikNIDMw3Njg69xSyKJ1w7VzGVCUnNygzIaG1s40NNg64eYS4xG6XNLBARAAAh+QQFFAANACwDABYAJQAkAAAE/7DJSZVtKiXKu+8MQxBWyCjLp37imJhwus5S+5ols9GrQuimhEIgUIRkPI8RqEsQBYjXYkClJifLkAZheAoThXBhwAs1btrEQmA4EDWMRZhMswnT6sOiK4DLxzQ+PzBNeXtQN2B0MwmDhHELCwgLbllxiys3OY+EaHJWKwtaQQtopDBgc5gdolpIapGxrSZ/BaU7HQKxuhOSAwbAA7NHkY2NSBRIkb3AwLohWdE6yB8KEpJtBwcGrS8BliEE1B0+Fnva2886AQDgcYEjcQLoBgOJAACmPuNK4lDaA9QlwJcPBookRmLVe6OFYDtaHIR58ASplBZ2DjUsOChhgK0PGoVemIqDEV+AANDMNfD4kYasBSdNojxhxAIKMfw6qDkJ0ySOIDZRFJuRUEGAnjOZAA2qUsWSjUeTKtXCtOlEWkxHPRISNKeEFza52pyK1YIaRkxLdXUnK4mGtFw3buLIY+PGtyplpb3SQFRNs+PUZlh2xeLgDxtPKPaKmHFfIFL4XoFFmEMEADs=';
+
+// Shared wallpaper: soft dusk sky with layered hills + stars
+function Wallpaper({ children, variant = 'dusk' }) {
+  const bg = variant === 'dusk'
+    ? 'linear-gradient(180deg, #2a2745 0%, #4a3f6b 38%, #7a5a7e 62%, #c88a80 82%, #e8b999 100%)'
+    : 'linear-gradient(180deg, #0e1226 0%, #1a1e3f 45%, #2a2a5c 75%, #3d3560 100%)';
+  return (
+    <div style={{ position: 'absolute', inset: 0, background: bg, overflow: 'hidden' }}>
+      {/* Stars (only in night) */}
+      {variant === 'night' && [...Array(28)].map((_, i) => {
+        const top = (i * 37) % 55;
+        const left = (i * 53) % 100;
+        const sz = (i % 3 === 0) ? 2 : 1;
+        return <div key={i} style={{
+          position: 'absolute', top: `${top}%`, left: `${left}%`,
+          width: sz, height: sz, borderRadius: sz,
+          background: 'rgba(255,255,255,0.85)',
+          boxShadow: '0 0 4px rgba(255,255,255,0.5)',
+        }}/>;
+      })}
+      {/* Distant hill silhouette 1 */}
+      <svg viewBox="0 0 412 200" preserveAspectRatio="none"
+        style={{ position: 'absolute', bottom: '22%', left: 0, width: '100%', height: '28%', opacity: 0.55 }}>
+        <path d="M0,140 C60,90 120,110 180,80 C240,50 300,90 360,70 L412,80 L412,200 L0,200 Z"
+          fill={variant === 'dusk' ? '#3a2d52' : '#0a0d20'}/>
+      </svg>
+      {/* Near hill silhouette */}
+      <svg viewBox="0 0 412 200" preserveAspectRatio="none"
+        style={{ position: 'absolute', bottom: 0, left: 0, width: '100%', height: '26%' }}>
+        <path d="M0,110 C80,70 160,100 220,60 C280,20 340,70 412,50 L412,200 L0,200 Z"
+          fill={variant === 'dusk' ? '#1e1633' : '#05071a'}/>
+      </svg>
+      {/* Subtle ground plane where Totodile walks */}
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 120,
+        background: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.35) 100%)' }}/>
+      {children}
+    </div>
+  );
+}
+
+// ─── Totodile walking sprite with CSS animation ───
+function Totodile({ bottom = 64, duration = 18, direction = 'rtl', size = 64, paused = false }) {
+  const animName = direction === 'rtl' ? 'toto-walk-rtl' : 'toto-walk-ltr';
+  return (
+    <>
+      <style>{`
+        @keyframes toto-walk-rtl {
+          0%   { left: 100%; transform: translateX(0) scaleX(1); }
+          49%  { left: 0%;   transform: translateX(-100%) scaleX(1); }
+          50%  { left: 0%;   transform: translateX(-100%) scaleX(-1); }
+          99%  { left: 100%; transform: translateX(0) scaleX(-1); }
+          100% { left: 100%; transform: translateX(0) scaleX(1); }
+        }
+        @keyframes toto-bob {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-2px); }
+        }
+        .toto-shadow {
+          animation: toto-bob 0.6s ease-in-out infinite;
+        }
+      `}</style>
+      <div style={{
+        position: 'absolute', bottom, left: '100%',
+        width: size, height: size,
+        animation: `${animName} ${duration}s linear infinite`,
+        animationPlayState: paused ? 'paused' : 'running',
+        pointerEvents: 'none',
+      }}>
+        <div className="toto-shadow" style={{ position: 'relative', width: '100%', height: '100%' }}>
+          {/* shadow */}
+          <div style={{
+            position: 'absolute', bottom: -4, left: '50%', transform: 'translateX(-50%)',
+            width: size * 0.7, height: 6, borderRadius: '50%',
+            background: 'radial-gradient(ellipse, rgba(0,0,0,0.45) 0%, transparent 70%)',
+          }}/>
+          <img src={SPRITE} alt="Totodile" style={{
+            width: '100%', height: '100%', imageRendering: 'pixelated',
+            filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.4))',
+          }}/>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Status bar (original, simple) ───
+function StatusBar({ light = true }) {
+  const c = light ? 'rgba(255,255,255,0.95)' : '#1a1a1a';
+  return (
+    <div style={{
+      height: 34, padding: '0 20px', display: 'flex',
+      alignItems: 'center', justifyContent: 'space-between',
+      color: c, fontSize: 13, fontWeight: 600,
+      fontFamily: 'ui-rounded, -apple-system, system-ui, sans-serif',
+      position: 'relative', zIndex: 5,
+    }}>
+      <span style={{ letterSpacing: 0.3 }}>21:04</span>
+      <div style={{
+        position: 'absolute', left: '50%', top: 10, transform: 'translateX(-50%)',
+        width: 18, height: 18, borderRadius: '50%', background: '#0a0a0a',
+      }}/>
+      <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+        {/* signal */}
+        <svg width="14" height="10" viewBox="0 0 14 10"><path d="M0 8h2v2H0zm3-2h2v4H3zm3-2h2v6H6zm3-2h2v8H9zm3-2h2v10h-2z" fill={c}/></svg>
+        {/* wifi */}
+        <svg width="14" height="10" viewBox="0 0 14 10"><path d="M7 10l2-2-1-1a2 2 0 00-2 0l-1 1 2 2zm-4-4l1 1a4 4 0 016 0l1-1a6 6 0 00-8 0zm-2-2l1 1a7 7 0 0110 0l1-1a9 9 0 00-12 0z" fill={c}/></svg>
+        {/* battery */}
+        <div style={{ width: 22, height: 11, border: `1.3px solid ${c}`, borderRadius: 2.5, position: 'relative', padding: 1.2 }}>
+          <div style={{ width: '78%', height: '100%', background: c, borderRadius: 1 }}/>
+          <div style={{ position: 'absolute', right: -3, top: 3, width: 2, height: 5, background: c, borderRadius: 1 }}/>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Gesture nav pill ───
+function NavPill({ light = true }) {
+  return (
+    <div style={{ height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', zIndex: 5 }}>
+      <div style={{ width: 122, height: 4.5, borderRadius: 3, background: light ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.45)' }}/>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// SCENE 1 — Lock screen with Totodile walking past
+// ═══════════════════════════════════════════════════════════
+function LockScreen() {
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#000',
+      fontFamily: 'ui-rounded, -apple-system, system-ui, sans-serif' }}>
+      <Wallpaper variant="dusk">
+        <StatusBar light/>
+
+        {/* Clock */}
+        <div style={{ position: 'absolute', top: 88, left: 0, right: 0, textAlign: 'center', color: '#fff' }}>
+          <div style={{ fontSize: 13, fontWeight: 500, letterSpacing: 2, opacity: 0.85, textTransform: 'uppercase' }}>
+            Tue · 21 Apr
+          </div>
+          <div style={{ fontSize: 96, fontWeight: 200, letterSpacing: -4, lineHeight: 1, marginTop: 4,
+            textShadow: '0 4px 24px rgba(0,0,0,0.3)' }}>
+            21:04
+          </div>
+        </div>
+
+        {/* Pokémon Screen HUD nugget (shows level + XP bar) */}
+        <div style={{ position: 'absolute', top: 238, left: '50%', transform: 'translateX(-50%)',
+          background: 'rgba(255,255,255,0.14)', backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255,255,255,0.22)', borderRadius: 18,
+          padding: '10px 16px', color: '#fff', display: 'flex', alignItems: 'center', gap: 12, minWidth: 240,
+        }}>
+          <div style={{ width: 32, height: 32, borderRadius: '50%',
+            background: 'linear-gradient(135deg, #6ec7e8 0%, #3a8fbf 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 11, fontWeight: 700, letterSpacing: 0.3 }}>
+            Lv8
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.95 }}>Totodile · Caimán</div>
+            <div style={{ marginTop: 4, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.22)', overflow: 'hidden' }}>
+              <div style={{ width: '62%', height: '100%', background: 'linear-gradient(90deg, #6ec7e8, #a8e4f0)' }}/>
+            </div>
+            <div style={{ fontSize: 10, opacity: 0.7, marginTop: 3, letterSpacing: 0.2, fontVariantNumeric: 'tabular-nums' }}>
+              1 247 / 2 000 XP · evolves at Lv 18
+            </div>
+          </div>
+        </div>
+
+        {/* notification stack */}
+        <div style={{ position: 'absolute', top: 360, left: 20, right: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {[
+            { app: 'Pokémon Screen', title: 'Totodile walked 2 341 steps with you today', time: 'now', color: '#6ec7e8' },
+            { app: 'Messages', title: 'Mom', body: '¿Cenas en casa?', time: '19:42', color: '#7bd88f' },
+          ].map((n, i) => (
+            <div key={i} style={{
+              background: 'rgba(255,255,255,0.14)', backdropFilter: 'blur(20px)',
+              border: '1px solid rgba(255,255,255,0.2)', borderRadius: 16,
+              padding: '10px 14px', color: '#fff',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, opacity: 0.8 }}>
+                <div style={{ width: 14, height: 14, borderRadius: 4, background: n.color }}/>
+                <span style={{ fontWeight: 600 }}>{n.app.toUpperCase()}</span>
+                <span style={{ marginLeft: 'auto', opacity: 0.7 }}>{n.time}</span>
+              </div>
+              <div style={{ marginTop: 4, fontSize: 13, fontWeight: 600 }}>{n.title}</div>
+              {n.body && <div style={{ fontSize: 12, opacity: 0.85, marginTop: 1 }}>{n.body}</div>}
+            </div>
+          ))}
+        </div>
+
+        {/* Totodile walking along the base */}
+        <Totodile bottom={56} duration={22} size={70}/>
+
+        {/* bottom shortcuts + pill */}
+        <div style={{ position: 'absolute', bottom: 48, left: 0, right: 0, display: 'flex', justifyContent: 'space-between', padding: '0 36px' }}>
+          <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'rgba(255,255,255,0.18)',
+            backdropFilter: 'blur(14px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2a4 4 0 00-4 4v4a4 4 0 008 0V6a4 4 0 00-4-4zM5 10a7 7 0 0014 0M12 17v4"/>
+            </svg>
+          </div>
+          <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'rgba(255,255,255,0.18)',
+            backdropFilter: 'blur(14px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="12" cy="12" r="3"/>
+            </svg>
+          </div>
+        </div>
+        <NavPill light/>
+      </Wallpaper>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// SCENE 2 — Home screen with Totodile peeking between apps
+// ═══════════════════════════════════════════════════════════
+function HomeScreen() {
+  // Generic, non-branded app icon placeholders (colored rounded squares + single glyph)
+  const apps = [
+    { name: 'Mail',     bg: 'linear-gradient(135deg,#ff9a56,#ff5e62)', glyph: '✉' },
+    { name: 'Calendar', bg: 'linear-gradient(135deg,#fafafa,#e2e2e2)', glyph: '21', dark: true },
+    { name: 'Notes',    bg: 'linear-gradient(135deg,#ffe16e,#ffc54a)', glyph: '✎', dark: true },
+    { name: 'Maps',     bg: 'linear-gradient(135deg,#7bd88f,#3aa963)', glyph: '◉' },
+    { name: 'Music',    bg: 'linear-gradient(135deg,#ff6b9d,#c23674)', glyph: '♪' },
+    { name: 'Camera',   bg: 'linear-gradient(135deg,#555,#222)',      glyph: '◎' },
+    { name: 'Steps',    bg: 'linear-gradient(135deg,#5bc0be,#0b8793)', glyph: '↑' },
+    { name: 'Weather',  bg: 'linear-gradient(135deg,#6ec7e8,#3a8fbf)', glyph: '☁', dark: false },
+    { name: 'Gallery',  bg: 'linear-gradient(135deg,#b07aff,#6a3fbf)', glyph: '▣' },
+    { name: 'Clock',    bg: 'linear-gradient(135deg,#111,#333)',      glyph: '◴' },
+    { name: 'Pokémon',  bg: 'linear-gradient(135deg,#6ec7e8,#2a5a8f)', glyph: '●' },
+    { name: 'Settings', bg: 'linear-gradient(135deg,#aaa,#666)',      glyph: '⚙' },
+  ];
+
+  const dock = [
+    { name: 'Phone',   bg: '#2ecc71', glyph: '☎' },
+    { name: 'Msgs',    bg: '#3aa0ff', glyph: '✎' },
+    { name: 'Browser', bg: '#ff7a59', glyph: '◐' },
+    { name: 'Photos',  bg: '#c23674', glyph: '▣' },
+  ];
+
+  const Icon = ({ a, size = 54 }) => (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, width: size + 14 }}>
+      <div style={{
+        width: size, height: size, borderRadius: 16, background: a.bg,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: a.dark ? '#222' : '#fff', fontSize: 22, fontWeight: 700,
+        boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
+        fontFamily: 'ui-rounded, system-ui, sans-serif',
+      }}>{a.glyph}</div>
+      <div style={{ fontSize: 11, color: '#fff', fontWeight: 500, textShadow: '0 1px 3px rgba(0,0,0,0.6)' }}>{a.name}</div>
+    </div>
+  );
+
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#000',
+      fontFamily: 'ui-rounded, -apple-system, system-ui, sans-serif' }}>
+      <Wallpaper variant="dusk">
+        <StatusBar light/>
+
+        {/* Search pill */}
+        <div style={{ position: 'absolute', top: 54, left: 20, right: 20, height: 42,
+          background: 'rgba(255,255,255,0.18)', backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255,255,255,0.22)', borderRadius: 21,
+          display: 'flex', alignItems: 'center', padding: '0 16px', gap: 10, color: 'rgba(255,255,255,0.85)' }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+            <circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>
+          </svg>
+          <span style={{ fontSize: 13 }}>Search</span>
+        </div>
+
+        {/* App grid — 3 rows of 4, leaving vertical space for Totodile */}
+        <div style={{ position: 'absolute', top: 116, left: 16, right: 16, display: 'grid',
+          gridTemplateColumns: 'repeat(4, 1fr)', rowGap: 18, justifyItems: 'center' }}>
+          {apps.map((a, i) => <Icon key={i} a={a}/>)}
+        </div>
+
+        {/* Widget: step counter w/ Totodile note */}
+        <div style={{ position: 'absolute', top: 404, left: 20, right: 20,
+          background: 'rgba(255,255,255,0.14)', backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255,255,255,0.2)', borderRadius: 20,
+          padding: '14px 16px', color: '#fff' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 34, height: 34, borderRadius: 10, background: 'linear-gradient(135deg,#6ec7e8,#3a8fbf)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>●</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 11, opacity: 0.75, fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>Today together</div>
+              <div style={{ fontSize: 18, fontWeight: 600, marginTop: 1 }}>2 341 steps · +47 XP</div>
+            </div>
+            <div style={{ fontSize: 11, opacity: 0.7 }}>Lv 8 · 62%</div>
+          </div>
+          <div style={{ marginTop: 10, height: 3, borderRadius: 2, background: 'rgba(255,255,255,0.2)', overflow: 'hidden' }}>
+            <div style={{ width: '62%', height: '100%', background: 'linear-gradient(90deg,#6ec7e8,#a8e4f0)' }}/>
+          </div>
+        </div>
+
+        {/* Totodile walking — between widget and dock */}
+        <Totodile bottom={136} duration={20} size={64}/>
+
+        {/* Dock */}
+        <div style={{ position: 'absolute', bottom: 52, left: 14, right: 14, height: 76,
+          background: 'rgba(255,255,255,0.14)', backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255,255,255,0.2)', borderRadius: 24,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-around', padding: '0 8px' }}>
+          {dock.map((a, i) => (
+            <div key={i} style={{
+              width: 48, height: 48, borderRadius: 14, background: a.bg,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: '#fff', fontSize: 20, fontWeight: 700,
+              boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
+            }}>{a.glyph}</div>
+          ))}
+        </div>
+        <NavPill light/>
+      </Wallpaper>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// SCENE 3 — Tap-to-cry moment (night variant)
+// ═══════════════════════════════════════════════════════════
+function CryScreen() {
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#000',
+      fontFamily: 'ui-rounded, -apple-system, system-ui, sans-serif' }}>
+      <style>{`
+        @keyframes cry-ripple {
+          0% { transform: translateX(-50%) scale(0.4); opacity: 0.7; }
+          100% { transform: translateX(-50%) scale(2.2); opacity: 0; }
+        }
+        @keyframes cry-pop {
+          0% { transform: translate(-50%, 10px) scale(0.6); opacity: 0; }
+          20% { transform: translate(-50%, -4px) scale(1.1); opacity: 1; }
+          100% { transform: translate(-50%, -20px) scale(1); opacity: 0; }
+        }
+        @keyframes xp-float {
+          0% { transform: translateY(0); opacity: 0; }
+          20% { transform: translateY(-8px); opacity: 1; }
+          100% { transform: translateY(-48px); opacity: 0; }
+        }
+      `}</style>
+      <Wallpaper variant="night">
+        <StatusBar light/>
+        <div style={{ position: 'absolute', top: 88, left: 0, right: 0, textAlign: 'center', color: '#fff' }}>
+          <div style={{ fontSize: 13, fontWeight: 500, letterSpacing: 2, opacity: 0.85, textTransform: 'uppercase' }}>
+            Tue · 21 Apr
+          </div>
+          <div style={{ fontSize: 96, fontWeight: 200, letterSpacing: -4, lineHeight: 1, marginTop: 4 }}>
+            23:47
+          </div>
+        </div>
+
+        {/* HUD */}
+        <div style={{ position: 'absolute', top: 238, left: '50%', transform: 'translateX(-50%)',
+          background: 'rgba(255,255,255,0.1)', backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255,255,255,0.18)', borderRadius: 18,
+          padding: '10px 16px', color: '#fff', display: 'flex', alignItems: 'center', gap: 12, minWidth: 240 }}>
+          <div style={{ width: 32, height: 32, borderRadius: '50%',
+            background: 'linear-gradient(135deg,#6ec7e8 0%,#3a8fbf 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 11, fontWeight: 700 }}>Lv8</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, fontWeight: 600 }}>Totodile · Caimán</div>
+            <div style={{ marginTop: 4, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.22)', overflow: 'hidden' }}>
+              <div style={{ width: '63%', height: '100%', background: 'linear-gradient(90deg,#6ec7e8,#a8e4f0)' }}/>
+            </div>
+            <div style={{ fontSize: 10, opacity: 0.7, marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>
+              1 252 / 2 000 XP
+            </div>
+          </div>
+        </div>
+
+        {/* The cry moment — Totodile standing still with speech bubble + ripple */}
+        <div style={{ position: 'absolute', bottom: 140, left: '50%', transform: 'translateX(-50%)',
+          width: 180, height: 120, display: 'flex', justifyContent: 'center', alignItems: 'flex-end' }}>
+
+          {/* ripple rings */}
+          {[0, 0.7, 1.4].map((d, i) => (
+            <div key={i} style={{
+              position: 'absolute', bottom: 12, left: '50%',
+              width: 80, height: 80, borderRadius: '50%',
+              border: '2px solid rgba(110, 199, 232, 0.7)',
+              animation: `cry-ripple 2.1s ease-out ${d}s infinite`,
+            }}/>
+          ))}
+
+          {/* speech bubble */}
+          <div style={{ position: 'absolute', top: -6, left: '50%',
+            animation: 'cry-pop 1.4s ease-out infinite',
+            background: 'rgba(255,255,255,0.96)', color: '#2a5a8f',
+            padding: '6px 12px', borderRadius: 14, fontWeight: 700, fontSize: 13,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)' }}>
+            ¡Toto! ✨
+            <div style={{ position: 'absolute', bottom: -5, left: '50%', marginLeft: -4,
+              width: 0, height: 0, borderLeft: '5px solid transparent', borderRight: '5px solid transparent',
+              borderTop: '6px solid rgba(255,255,255,0.96)' }}/>
+          </div>
+
+          {/* XP +1 floating */}
+          <div style={{ position: 'absolute', top: 30, left: '72%',
+            animation: 'xp-float 1.6s ease-out infinite',
+            color: '#a8e4f0', fontSize: 14, fontWeight: 700,
+            textShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>+1 XP</div>
+
+          {/* Shadow */}
+          <div style={{ position: 'absolute', bottom: 6, width: 50, height: 8, borderRadius: '50%',
+            background: 'radial-gradient(ellipse, rgba(0,0,0,0.5) 0%, transparent 70%)' }}/>
+
+          <img src={SPRITE} alt="Totodile" style={{
+            width: 78, height: 78, imageRendering: 'pixelated', position: 'relative', zIndex: 2,
+            filter: 'drop-shadow(0 3px 6px rgba(0,0,0,0.5))',
+          }}/>
+        </div>
+
+        {/* Tap hint */}
+        <div style={{ position: 'absolute', bottom: 96, left: '50%', transform: 'translateX(-50%)',
+          color: 'rgba(255,255,255,0.65)', fontSize: 11, letterSpacing: 1, textTransform: 'uppercase' }}>
+          Tap to play · Long-press for menu
+        </div>
+
+        <NavPill light/>
+      </Wallpaper>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// SCENE 4 — Ambient walk path (behaviour diagram)
+// ═══════════════════════════════════════════════════════════
+function BehaviourScreen() {
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#000',
+      fontFamily: 'ui-rounded, -apple-system, system-ui, sans-serif' }}>
+      <Wallpaper variant="dusk">
+        <StatusBar light/>
+        <div style={{ position: 'absolute', top: 88, left: 0, right: 0, textAlign: 'center', color: '#fff' }}>
+          <div style={{ fontSize: 13, fontWeight: 500, letterSpacing: 2, opacity: 0.85, textTransform: 'uppercase' }}>
+            Behaviour preview
+          </div>
+          <div style={{ fontSize: 40, fontWeight: 300, letterSpacing: -1, marginTop: 6 }}>
+            How it roams
+          </div>
+        </div>
+
+        {/* Path overlay — dashed walk route across the screen */}
+        <svg width="100%" height="100%" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+          <defs>
+            <linearGradient id="pathG" x1="0" x2="1" y1="0" y2="0">
+              <stop offset="0%" stopColor="#6ec7e8" stopOpacity="0"/>
+              <stop offset="20%" stopColor="#6ec7e8" stopOpacity="0.8"/>
+              <stop offset="80%" stopColor="#a8e4f0" stopOpacity="0.8"/>
+              <stop offset="100%" stopColor="#a8e4f0" stopOpacity="0"/>
+            </linearGradient>
+          </defs>
+          <path d="M 20 520 Q 100 505, 180 520 T 350 515 T 450 525"
+            stroke="url(#pathG)" strokeWidth="2" strokeDasharray="4 6" fill="none"/>
+        </svg>
+
+        {/* Annotated dots along the path */}
+        {[
+          { x: 60, y: 490, label: 'Idle · 8s', note: 'sits & looks around' },
+          { x: 200, y: 490, label: 'Walk →', note: '0.4 px/frame' },
+          { x: 330, y: 490, label: 'Cry (rare)', note: 'every ~5 min' },
+        ].map((p, i) => (
+          <div key={i} style={{ position: 'absolute', left: p.x, top: p.y,
+            color: '#fff', fontSize: 10, textAlign: 'center', transform: 'translate(-50%, -100%)' }}>
+            <div style={{ fontWeight: 700, letterSpacing: 0.3 }}>{p.label}</div>
+            <div style={{ opacity: 0.65, fontSize: 9 }}>{p.note}</div>
+            <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#a8e4f0',
+              margin: '6px auto 0', boxShadow: '0 0 8px #6ec7e8' }}/>
+          </div>
+        ))}
+
+        {/* Two Totodile sprites at different points to show the path */}
+        <div style={{ position: 'absolute', bottom: 60, left: 50, width: 54, height: 54 }}>
+          <img src={SPRITE} style={{ width: '100%', height: '100%', imageRendering: 'pixelated',
+            filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5)) opacity(0.55)' }}/>
+        </div>
+        <Totodile bottom={60} duration={16} size={64}/>
+
+        {/* Spec list */}
+        <div style={{ position: 'absolute', top: 200, left: 20, right: 20,
+          background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255,255,255,0.14)', borderRadius: 18,
+          padding: 14, color: '#fff' }}>
+          {[
+            ['Render surface', 'WallpaperService + Canvas @ 30 fps'],
+            ['Sprite size', '64×64 dp · pixelated scaling'],
+            ['Walk speed', '24 dp/s · bob every 0.6 s'],
+            ['Cry trigger', 'tap · or random (5–15 min)'],
+            ['Sleep hours', '00:00 → 07:00 (idle only)'],
+          ].map(([k, v], i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between',
+              padding: '7px 0', borderBottom: i < 4 ? '1px solid rgba(255,255,255,0.08)' : 'none',
+              fontSize: 12 }}>
+              <span style={{ opacity: 0.65 }}>{k}</span>
+              <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{v}</span>
+            </div>
+          ))}
+        </div>
+
+        <NavPill light/>
+      </Wallpaper>
+    </div>
+  );
+}
+
+Object.assign(window, { LockScreen, HomeScreen, CryScreen, BehaviourScreen });
+
+
+  // Phone frame — original, non-branded Android-style bezel
+  function Phone({ children }) {
+    return (
+      <div style={{
+        width: 320, height: 680, borderRadius: 42, padding: 8,
+        background: 'linear-gradient(160deg, #2a2a2e 0%, #1a1a1e 100%)',
+        boxShadow: '0 1px 0 rgba(255,255,255,0.08) inset, 0 30px 60px rgba(0,0,0,0.25)',
+        position: 'relative',
+      }} data-screen-label="phone">
+        <div style={{ width: '100%', height: '100%', borderRadius: 34, overflow: 'hidden',
+          background: '#000', position: 'relative', boxShadow: '0 0 0 2px #0a0a0c inset' }}>
+          {children}
+        </div>
+      </div>
+    );
+  }
+
+  function App() {
+    return (
+      <DesignCanvas>
+        <DCSection id="overview" title="Pokémon Screen · Totodile"
+          subtitle="Concepto del live wallpaper: Totodile recorre la pantalla. Arrastra para paneo, rueda para zoom, click en un artboard para enfocar (←/→/Esc).">
+
+          <DCArtboard id="lock" label="01 · Lock screen — roaming" width={336} height={696}>
+            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'radial-gradient(circle at 50% 30%, #e8e3db 0%, #d8d1c5 100%)' }}>
+              <Phone><LockScreen/></Phone>
+            </div>
+          </DCArtboard>
+
+          <DCArtboard id="home" label="02 · Home screen — entre apps" width={336} height={696}>
+            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'radial-gradient(circle at 50% 30%, #e8e3db 0%, #d8d1c5 100%)' }}>
+              <Phone><HomeScreen/></Phone>
+            </div>
+          </DCArtboard>
+
+          <DCArtboard id="cry" label="03 · Tap to cry (+XP)" width={336} height={696}>
+            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'radial-gradient(circle at 50% 30%, #e8e3db 0%, #d8d1c5 100%)' }}>
+              <Phone><CryScreen/></Phone>
+            </div>
+          </DCArtboard>
+
+          <DCArtboard id="behaviour" label="04 · Behaviour + specs" width={336} height={696}>
+            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'radial-gradient(circle at 50% 30%, #e8e3db 0%, #d8d1c5 100%)' }}>
+              <Phone><BehaviourScreen/></Phone>
+            </div>
+          </DCArtboard>
+
+          <DCPostIt top={-8} right={60} rotate={3} width={220}>
+            Sprite al natural (43×58 px) escalado ×1.3–1.5 con render pixelated. Loop continuo, voltea al borde.
+          </DCPostIt>
+        </DCSection>
+      </DesignCanvas>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+
+</script>
+</body>
+</html>

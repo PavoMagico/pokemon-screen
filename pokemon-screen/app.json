@@ -3,10 +3,10 @@
     "name": "pokemon-screen",
     "slug": "pokemon-screen",
     "version": "1.0.0",
-    "icon": "./assets/images/totodile_icon.png",
+    "icon": "./assets/images/pokemon-aesthetic.png",
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/totodile_icon.png",
+        "foregroundImage": "./assets/images/pokemon-aesthetic.png",
         "backgroundColor": "#0f172a"
       },
       "package": "com.pokemonscreen"

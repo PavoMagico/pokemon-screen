@@ -55,46 +55,56 @@ class PokemonOverlayService : Service(), SensorEventListener {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    private fun registerSensors() {
+        try {
+            sensorManager.unregisterListener(this)
+            stepSensor = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
+            stepSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_FASTEST) }
+            
+            accelSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+            accelSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
+        } catch (e: Exception) { e.printStackTrace() }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
 
-        loadData()
+        intent?.getStringExtra("pokemon")?.let { newPoke ->
+            if (newPoke != selectedPokemon) {
+                saveData()
+                selectedPokemon = newPoke
+                loadData()
+                loadMovies()
+                activeOverlay?.postInvalidate()
+            }
+        } ?: run {
+            loadData()
+            loadMovies()
+        }
+
+        registerSensors()
         isVisible = true
         activeOverlay?.visibility = View.VISIBLE
 
         intent?.getIntExtra("addSteps", 0)?.let { extra ->
             if (extra > 0) addSteps(extra)
         }
-
-        intent?.getStringExtra("pokemon")?.let { newPoke ->
-            if (newPoke != selectedPokemon) {
-                selectedPokemon = newPoke
-                loadMovies()
-                activeOverlay?.postInvalidate()
-            }
-        }
         
-        loadMovies()
         return START_STICKY
     }
 
     override fun onCreate() {
         super.onCreate()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        
         loadData()
         
         val metrics = resources.displayMetrics
         screenWidth = metrics.widthPixels
         screenHeight = metrics.heightPixels
 
-        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
-        stepSensor = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
-        stepSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_FASTEST) }
-        
-        accelSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-        accelSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
-        
         showOverlay()
     }
 
@@ -113,7 +123,8 @@ class PokemonOverlayService : Service(), SensorEventListener {
             putInt("${selectedPokemon}_steps", currentSteps)
             putInt("${selectedPokemon}_level", level)
             putBoolean("${selectedPokemon}_isHatched", isHatched)
-            putString("selectedPokemon", selectedPokemon)
+            // Ya no guardamos "selectedPokemon" aquí para evitar que sobrescriba 
+            // el cambio realizado por PokemonModule.switchPokemon
             putInt("global_candies", candies)
             apply()
         }
@@ -136,6 +147,9 @@ class PokemonOverlayService : Service(), SensorEventListener {
     }
 
     private fun addSteps(count: Int) {
+        val prefs = getSharedPreferences("pokemon_prefs", Context.MODE_PRIVATE)
+        candies = prefs.getInt("global_candies", 0)
+        
         val oldSteps = currentSteps
         currentSteps += count
         
@@ -195,7 +209,12 @@ class PokemonOverlayService : Service(), SensorEventListener {
     }
 
     private fun showOverlay() {
-        activeOverlay?.let { try { windowManager.removeView(it) } catch(e: Exception) {} }
+        try {
+            activeOverlay?.let { 
+                if (it.isAttachedToWindow) windowManager.removeViewImmediate(it) 
+            }
+        } catch(e: Exception) {}
+        activeOverlay = null
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
@@ -208,6 +227,12 @@ class PokemonOverlayService : Service(), SensorEventListener {
 
         val v = object : View(this) {
             val viewRef = this
+            
+            init {
+                // SOLUCIÓN GHOSTING: Usar modo SOFTWARE evita que la GPU guarde rastro de frames anteriores
+                setLayerType(LAYER_TYPE_SOFTWARE, null)
+            }
+
             val detector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
                 override fun onLongPress(e: MotionEvent) { showMenu(viewRef) }
                 override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
@@ -227,23 +252,27 @@ class PokemonOverlayService : Service(), SensorEventListener {
             override fun onDraw(canvas: Canvas) {
                 val now = SystemClock.uptimeMillis()
                 if (lastTick == 0L) lastTick = now
-                canvas.save()
                 
-                // Centrar dibujo en el área medida (20px de offset)
+                // LIMPIEZA TOTAL: Evita el efecto doble/fantasma limpiando el buffer
+                canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+                
+                canvas.save()
                 canvas.translate(10f * scaleFactor, 10f * scaleFactor)
 
                 if (isHatched) {
                     canvas.scale(scaleFactor, scaleFactor)
                     movie?.let { m ->
+                        // El flip se aplica SOLO al dibujo del movie
+                        canvas.save()
                         if (velX > 0) canvas.scale(-1f, 1f, m.width() / 2f, 0f)
                         m.setTime(((now - lastTick) % m.duration().coerceAtLeast(1)).toInt())
-                        // Ajustar Pokémon si son muy grandes moviendo el canvas
                         var offsetY = 0f
                         val bigOnes = listOf("onix", "ho_oh", "steelix", "gyarados", "lugia", "tyranitar", "charizard", "dragonite", "venusaur", "blastoise", "articuno", "zapdos", "moltres", "mewtwo")
                         if (bigOnes.contains(selectedPokemon)) {
                             offsetY = -12f
                         }
                         m.draw(canvas, 0f, offsetY)
+                        canvas.restore()
                     }
                 } else {
                     canvas.scale(scaleFactor, scaleFactor)
@@ -257,7 +286,6 @@ class PokemonOverlayService : Service(), SensorEventListener {
                 }
                 canvas.restore()
 
-                // Dibujar partículas fuera del escalado del Pokémon
                 val iterator = particles.iterator()
                 val pPaint = Paint()
                 while (iterator.hasNext()) {
@@ -267,7 +295,7 @@ class PokemonOverlayService : Service(), SensorEventListener {
                     canvas.drawCircle(part.x, part.y, 6f, pPaint)
                     part.x += part.vx
                     part.y += part.vy
-                    part.vy += 0.5f // Gravedad
+                    part.vy += 0.5f 
                     part.life--
                     if (part.life <= 0) iterator.remove()
                 }
@@ -275,7 +303,6 @@ class PokemonOverlayService : Service(), SensorEventListener {
                 invalidate()
             }
             override fun onMeasure(specW: Int, specH: Int) {
-                // Dar mucho más espacio (40px extra) para evitar cortes en animaciones
                 val w = if (isHatched && movie != null) movie!!.width() else 40
                 val h = if (isHatched && movie != null) movie!!.height() else 50
                 setMeasuredDimension(((w + 40) * scaleFactor).toInt(), ((h + 40) * scaleFactor).toInt())

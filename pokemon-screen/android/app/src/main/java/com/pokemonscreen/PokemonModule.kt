@@ -20,11 +20,20 @@ class PokemonModule(reactContext: ReactApplicationContext) : ReactContextBaseJav
     private var mediaPlayer: MediaPlayer? = null
 
     init {
-        val filter = IntentFilter("com.pokemonscreen.UNLOCK_ALL")
+        val filter = IntentFilter()
+        filter.addAction("com.pokemonscreen.UNLOCK_ALL")
+        filter.addAction("com.pokemonscreen.ADD_CANDIES")
+        
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                unlockAllTest()
-                // Opcional: reiniciar el overlay si está activo para ver los cambios
+                if (intent?.action == "com.pokemonscreen.ADD_CANDIES") {
+                    val amount = intent.getIntExtra("amount", 50)
+                    val prefs = reactContext.getSharedPreferences("pokemon_prefs", Context.MODE_PRIVATE)
+                    val current = prefs.getInt("global_candies", 0)
+                    prefs.edit().putInt("global_candies", current + amount).apply()
+                } else {
+                    unlockAllTest()
+                }
                 summon()
             }
         }
@@ -108,10 +117,21 @@ class PokemonModule(reactContext: ReactApplicationContext) : ReactContextBaseJav
         map.putInt("candies", prefs.getInt("global_candies", 0))
         map.putInt("eggsBought", prefs.getInt("eggsBought", 0))
         
+        // Hatched Pokemon
         val ownedSet = prefs.getStringSet("owned_pokemon", setOf()) ?: setOf()
-        val ownedArray = Arguments.createArray()
-        ownedSet.forEach { ownedArray.pushString(it) }
-        map.putArray("ownedPokemon", ownedArray)
+        val hatchedArray = Arguments.createArray()
+        ownedSet.filter { prefs.getBoolean("${it}_isHatched", false) }.forEach { hatchedArray.pushString(it) }
+        map.putArray("ownedPokemon", hatchedArray)
+
+        // Eggs (Unhatched)
+        val eggsArray = Arguments.createArray()
+        ownedSet.filter { !prefs.getBoolean("${it}_isHatched", false) }.forEach { 
+            val eggMap = Arguments.createMap()
+            eggMap.putString("species", it)
+            eggMap.putInt("steps", prefs.getInt("${it}_steps", 0))
+            eggsArray.pushMap(eggMap)
+        }
+        map.putArray("eggs", eggsArray)
 
         val inventorySet = prefs.getStringSet("inventory", setOf()) ?: setOf()
         val inventoryArray = Arguments.createArray()

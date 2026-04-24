@@ -105,11 +105,13 @@ const EVO_MAP: { [key: string]: { next: string, level?: number, item?: string } 
   weedle: { next: 'kakuna', level: 7 }, kakuna: { next: 'beedrill', level: 10 },
   pidgey: { next: 'pidgeotto', level: 18 }, pidgeotto: { next: 'pidgeot', level: 36 },
   rattata: { next: 'raticate', level: 20 }, spearow: { next: 'fearow', level: 20 },
-  ekans: { next: 'arbok', level: 22 }, pikachu: { next: 'raichu', item: 'Thunder Stone' },
+  ekans: { next: 'arbok', level: 22 }, pichu: { next: 'pikachu', level: 10 },
+  pikachu: { next: 'raichu', item: 'Thunder Stone' },
   sandshrew: { next: 'sandslash', level: 22 }, nidoran_f: { next: 'nidorina', level: 16 },
   nidorina: { next: 'nidoqueen', item: 'Moon Stone' }, nidoran_m: { next: 'nidorino', level: 16 },
-  nidorino: { next: 'nidoking', item: 'Moon Stone' }, clefairy: { next: 'clefable', item: 'Moon Stone' },
-  vulpix: { next: 'ninetales', item: 'Fire Stone' }, jigglypuff: { next: 'wigglytuff', item: 'Moon Stone' },
+  nidorino: { next: 'nidoking', item: 'Moon Stone' }, cleffa: { next: 'clefairy', level: 10 },
+  clefairy: { next: 'clefable', item: 'Moon Stone' }, vulpix: { next: 'ninetales', item: 'Fire Stone' },
+  igglybuff: { next: 'jigglypuff', level: 10 }, jigglypuff: { next: 'wigglytuff', item: 'Moon Stone' },
   zubat: { next: 'golbat', level: 22 }, golbat: { next: 'crobat', level: 40 },
   oddish: { next: 'gloom', level: 21 }, gloom: { next: 'vileplume', item: 'Leaf Stone' },
   paras: { next: 'parasect', level: 24 }, venonat: { next: 'venomoth', level: 31 },
@@ -141,7 +143,8 @@ const EVO_MAP: { [key: string]: { next: string, level?: number, item?: string } 
   ledyba: { next: 'ledian', level: 18 }, spinarak: { next: 'ariados', level: 20 },
   mareep: { next: 'flaaffy', level: 15 }, flaaffy: { next: 'ampharos', level: 30 },
   marill: { next: 'azumarill', level: 18 }, hoppip: { next: 'skiploom', level: 18 },
-  skiploom: { next: 'jumpluff', level: 27 }, sunkern: { next: 'sunflora', item: 'Sun Stone' },
+  skiploom: { next: 'jumpluff', level: 27 }, togepi: { next: 'togetic', level: 10 },
+  sunkern: { next: 'sunflora', item: 'Sun Stone' },
   wooper: { next: 'quagsire', level: 20 }, pineco: { next: 'forretress', level: 31 },
   snubbull: { next: 'granbull', level: 23 }, slugma: { next: 'magcargo', level: 38 },
   swinub: { next: 'piloswine', level: 33 }, remoraid: { next: 'octillery', level: 25 },
@@ -197,6 +200,24 @@ const JOHTO = ALL_POKEMON_LIST.filter(p => POKE_IDS[p] > 151 && POKE_IDS[p] <= 2
 const HOENN = ALL_POKEMON_LIST.filter(p => POKE_IDS[p] > 251 && POKE_IDS[p] <= 386);
 
 const LEGENDARY = ['articuno', 'zapdos', 'moltres', 'mewtwo', 'mew', 'raikou', 'entei', 'suicune', 'lugia', 'ho_oh', 'celebi', 'regirock', 'regice', 'registeel', 'latias', 'latios', 'kyogre', 'groudon', 'rayquaza', 'jirachi', 'deoxys'];
+
+// Helper for evolution family checking
+const getFamilyMembers = (base: string): string[] => {
+    const members = [base];
+    let current = base;
+    while (EVO_MAP[current]) {
+        current = EVO_MAP[current].next;
+        members.push(current);
+    }
+    return members;
+};
+
+// Identify base Pokémon for each region (those that aren't the 'next' stage of something else)
+const EVOLVED_NAMES = new Set(Object.values(EVO_MAP).map(e => e.next));
+const KANTO_BASE = KANTO.filter(p => !EVOLVED_NAMES.has(p) && !LEGENDARY.includes(p));
+const JOHTO_BASE = JOHTO.filter(p => !EVOLVED_NAMES.has(p) && !LEGENDARY.includes(p));
+const HOENN_BASE = HOENN.filter(p => !EVOLVED_NAMES.has(p) && !LEGENDARY.includes(p));
+const ALL_BASE = [...KANTO_BASE, ...JOHTO_BASE, ...HOENN_BASE];
 
 const getIconUri = (name: string) => {
   if (!name) return "";
@@ -381,33 +402,45 @@ export default function HomeScreen() {
     return () => clearInterval(interval);
   }, []);
 
+  // Set of all species currently held in any stage
+  const heldSpecies = useMemo(() => {
+    const held = new Set<string>();
+    [...stats.ownedPokemon, ...stats.eggs.map((e: any) => e.species)].forEach(s => held.add(s));
+    return held;
+  }, [stats.ownedPokemon, stats.eggs]);
+
   const ownedSet = useMemo(() => new Set(stats.ownedPokemon), [stats.ownedPokemon]);
-  const eggSet = useMemo(() => new Set(stats.eggs.map((e: any) => e.species)), [stats.eggs]);
 
   const handleGridPress = useCallback((name: string) => {
     const isActuallyOwned = ownedSet.has(name);
     if (isActuallyOwned) PokemonModule.playCry(name);
 
-    const isEgg = eggSet.has(name);
+    // Check if it's an egg
+    const isEgg = stats.eggs.some((e: any) => e.species === name);
     if (activeTab === 'pokedex' && !isActuallyOwned && !isEgg) return;
 
     PokemonModule.switchPokemon(name);
-  }, [activeTab, ownedSet, eggSet]);
+  }, [stats.eggs, ownedSet, activeTab]);
 
   const buyEgg = async (type: 'random' | 'kanto' | 'johto' | 'hoenn') => {
     await PokemonModule.requestPermissions();
     const cost = type === 'random' ? 30 : 60;
 
     if (stats.candies >= cost) {
-      let pool = [];
-      if (type === 'kanto') pool = KANTO;
-      else if (type === 'johto') pool = JOHTO;
-      else if (type === 'hoenn') pool = HOENN;
-      else pool = [...KANTO, ...JOHTO, ...HOENN];
+      let basePool = [];
+      let legendaryPool = [];
+
+      if (type === 'kanto') { basePool = KANTO_BASE; legendaryPool = KANTO.filter(p => LEGENDARY.includes(p)); }
+      else if (type === 'johto') { basePool = JOHTO_BASE; legendaryPool = JOHTO.filter(p => LEGENDARY.includes(p)); }
+      else if (type === 'hoenn') { basePool = HOENN_BASE; legendaryPool = HOENN.filter(p => LEGENDARY.includes(p)); }
+      else { basePool = ALL_BASE; legendaryPool = ALL_POKEMON_LIST.filter(p => LEGENDARY.includes(p)); }
 
       const isLegendary = Math.random() * 100 < 1;
-      pool = pool.filter(p => isLegendary ? LEGENDARY.includes(p) : !ALL_LEGENDARY_REFS.includes(p));
-      pool = pool.filter(p => !ownedSet.has(p) && !eggSet.has(p));
+      let pool = isLegendary ? legendaryPool : basePool;
+
+      // Filtro: Solo bloqueamos si YA TIENES esa especie exacta (en huevo o eclosionado)
+      // Esto permite volver a conseguir un Totodile si el que tenías ya es un Feraligatr.
+      pool = pool.filter(p => !heldSpecies.has(p));
 
       if (pool.length > 0) {
         const picked = pool[Math.floor(Math.random() * pool.length)];
@@ -417,8 +450,6 @@ export default function HomeScreen() {
       }
     }
   };
-
-  const ALL_LEGENDARY_REFS = LEGENDARY;
 
   const handleEvolve = async () => {
     if (!stats.selectedPokemon) return;
@@ -471,12 +502,6 @@ export default function HomeScreen() {
     return data;
   }, [t]);
 
-  const gridData = useMemo(() => {
-    if (activeTab === 'eggs') return stats.eggs;
-    if (activeTab === 'pokemon') return stats.ownedPokemon;
-    return pokedexFlattened;
-  }, [activeTab, stats.eggs, stats.ownedPokemon, pokedexFlattened]);
-
   const chunk = (arr: any[], size: number) =>
     Array.from({ length: Math.ceil(arr.length / size) }, (v, i) =>
       arr.slice(i * size, i * size + size)
@@ -526,7 +551,6 @@ export default function HomeScreen() {
                                 {renderSingleItem({ item: p })}
                             </View>
                         ))}
-                        {/* Fillers for incomplete rows */}
                         {item.length < 3 && Array(3 - item.length).fill(0).map((_, i) => <View key={`empty-${i}`} style={{ flex: 1 }} />)}
                     </View>
                 )}

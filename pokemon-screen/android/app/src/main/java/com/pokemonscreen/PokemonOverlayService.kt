@@ -2,6 +2,7 @@ package com.pokemonscreen
 
 import android.app.*
 import android.content.*
+import android.content.res.Configuration
 import android.graphics.*
 import android.hardware.*
 import android.media.MediaPlayer
@@ -100,12 +101,24 @@ class PokemonOverlayService : Service(), SensorEventListener {
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         
         loadData()
-        
+        updateScreenSize()
+        showOverlay()
+    }
+
+    private fun updateScreenSize() {
         val metrics = resources.displayMetrics
         screenWidth = metrics.widthPixels
         screenHeight = metrics.heightPixels
+    }
 
-        showOverlay()
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        updateScreenSize()
+        // Reposicionar si queda fuera tras rotación
+        activeOverlay?.let { view ->
+            if (posX + view.width > screenWidth) posX = (screenWidth - view.width).toFloat().coerceAtLeast(0f)
+            if (posY + view.height > screenHeight) posY = (screenHeight - view.height).toFloat().coerceAtLeast(0f)
+        }
     }
 
     private fun loadData() {
@@ -227,6 +240,8 @@ class PokemonOverlayService : Service(), SensorEventListener {
 
         val v = object : View(this) {
             val viewRef = this
+            private var tapCount = 0
+            private var firstTapTime = 0L
             
             init {
                 // SOLUCIÓN GHOSTING: Usar modo SOFTWARE evita que la GPU guarde rastro de frames anteriores
@@ -235,7 +250,21 @@ class PokemonOverlayService : Service(), SensorEventListener {
 
             val detector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
                 override fun onLongPress(e: MotionEvent) { showMenu(viewRef) }
-                override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                override fun onSingleTapUp(e: MotionEvent): Boolean {
+                    val now = SystemClock.uptimeMillis()
+                    if (now - firstTapTime > 2000) {
+                        tapCount = 1
+                        firstTapTime = now
+                    } else {
+                        tapCount++
+                        if (tapCount >= 5) {
+                            isVisible = false
+                            viewRef.visibility = View.GONE
+                            tapCount = 0
+                            return true
+                        }
+                    }
+
                     if (isHatched) { 
                         playCry()
                         pauseUntil = SystemClock.uptimeMillis() + 5000
@@ -321,17 +350,28 @@ class PokemonOverlayService : Service(), SensorEventListener {
 
     private fun startSmoothAnimation(params: WindowManager.LayoutParams) {
         val choreographer = Choreographer.getInstance()
+        val viewAtStart = activeOverlay // Capturamos la instancia actual para evitar fugas/doble bucle
+        
         choreographer.postFrameCallback(object : Choreographer.FrameCallback {
             override fun doFrame(frameTimeNanos: Long) {
+                // Si la vista activa ya no es esta, detenemos este bucle específico
+                if (activeOverlay != viewAtStart || activeOverlay == null) return
+
                 activeOverlay?.let { view ->
                     if (isVisible && !isPressed && SystemClock.uptimeMillis() > pauseUntil) {
                         val currentVelX = if (isHatched) velX else velX / 3f
                         val currentVelY = if (isHatched) velY else velY / 3f
                         posX += currentVelX; posY += currentVelY
+                        
                         if (posX <= 0 || posX + view.width >= screenWidth) velX *= -1
                         if (posY <= 100 || posY + view.height >= screenHeight - 100) velY *= -1
+                        
                         params.x = posX.toInt(); params.y = posY.toInt()
-                        if (view.isAttachedToWindow) windowManager.updateViewLayout(view, params)
+                        if (view.isAttachedToWindow) {
+                            try {
+                                windowManager.updateViewLayout(view, params)
+                            } catch (e: Exception) {}
+                        }
                     }
                     choreographer.postFrameCallback(this)
                 }

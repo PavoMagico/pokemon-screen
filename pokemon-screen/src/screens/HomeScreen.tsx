@@ -46,6 +46,13 @@ const I18N: any = {
     max: "MAX",
     re_summon: "RE-SUMMON",
     tabs: { eggs: "EGGS", pokemon: "MY POKÉMON", pokedex: "POKÉDEX" },
+    tutorial: {
+      title: "HOW TO PLAY",
+      steps: "👣 Walk to hatch eggs and earn candies (1🍬 every 50 steps).",
+      partner: "✨ Set a partner to see it on your screen!",
+      actions: "👆 Tap your Pokémon to hear its cry. Long press or tap 5 times to unsummon.",
+      evolve: "🧬 Level up and use items to evolve your team."
+    },
     empty_eggs: "No eggs yet!",
     empty_pokemon: "No Pokémon yet!",
     regions: { kanto: "KANTO", johto: "JOHTO", hoenn: "HOENN" },
@@ -80,6 +87,13 @@ const I18N: any = {
     max: "NIVEL MÁX",
     re_summon: "RE-INVOCAR",
     tabs: { eggs: "HUEVOS", pokemon: "MIS POKÉMON", pokedex: "POKÉDEX" },
+    tutorial: {
+      title: "CÓMO JUGAR",
+      steps: "👣 Camina para eclosionar huevos y ganar caramelos (1🍬 cada 50 pasos).",
+      partner: "✨ ¡Elige un compañero para que aparezca en tu pantalla!",
+      actions: "👆 Toca a tu Pokémon para oír su grito. Mantén pulsado o toca 5 veces para desinvocar.",
+      evolve: "🧬 Sube de nivel y usa objetos para evolucionar a tu equipo."
+    },
     empty_eggs: "¡No tienes huevos!",
     empty_pokemon: "¡No tienes Pokémon!",
     regions: { kanto: "KANTO", johto: "JOHTO", hoenn: "HOENN" },
@@ -105,13 +119,13 @@ const EVO_MAP: { [key: string]: { next: string, level?: number, item?: string } 
   weedle: { next: 'kakuna', level: 7 }, kakuna: { next: 'beedrill', level: 10 },
   pidgey: { next: 'pidgeotto', level: 18 }, pidgeotto: { next: 'pidgeot', level: 36 },
   rattata: { next: 'raticate', level: 20 }, spearow: { next: 'fearow', level: 20 },
-  ekans: { next: 'arbok', level: 22 }, pichu: { next: 'pikachu', level: 10 },
+  ekans: { next: 'arbok', level: 22 },
   pikachu: { next: 'raichu', item: 'Thunder Stone' },
   sandshrew: { next: 'sandslash', level: 22 }, nidoran_f: { next: 'nidorina', level: 16 },
   nidorina: { next: 'nidoqueen', item: 'Moon Stone' }, nidoran_m: { next: 'nidorino', level: 16 },
-  nidorino: { next: 'nidoking', item: 'Moon Stone' }, cleffa: { next: 'clefairy', level: 10 },
+  nidorino: { next: 'nidoking', item: 'Moon Stone' },
   clefairy: { next: 'clefable', item: 'Moon Stone' }, vulpix: { next: 'ninetales', item: 'Fire Stone' },
-  igglybuff: { next: 'jigglypuff', level: 10 }, jigglypuff: { next: 'wigglytuff', item: 'Moon Stone' },
+  jigglypuff: { next: 'wigglytuff', item: 'Moon Stone' },
   zubat: { next: 'golbat', level: 22 }, golbat: { next: 'crobat', level: 40 },
   oddish: { next: 'gloom', level: 21 }, gloom: { next: 'vileplume', item: 'Leaf Stone' },
   paras: { next: 'parasect', level: 24 }, venonat: { next: 'venomoth', level: 31 },
@@ -136,6 +150,18 @@ const EVO_MAP: { [key: string]: { next: string, level?: number, item?: string } 
   eevee: { next: 'vaporeon', item: 'Water Stone' }, omanyte: { next: 'omastar', level: 40 },
   kabuto: { next: 'kabutops', level: 40 }, dratini: { next: 'dragonair', level: 30 },
   dragonair: { next: 'dragonite', level: 55 },
+
+  // Baby & Multi-stage Evolutions
+  pichu: { next: 'pikachu', level: 10 },
+  cleffa: { next: 'clefairy', level: 10 },
+  igglybuff: { next: 'jigglypuff', level: 10 },
+  smoochum: { next: 'jynx', level: 30 },
+  elekid: { next: 'electabuzz', level: 30 },
+  magby: { next: 'magmar', level: 30 },
+  azurill: { next: 'marill', level: 10 },
+  wynaut: { next: 'wobbuffet', level: 15 },
+  tyrogue: { next: 'hitmontop', level: 20 },
+
   chikorita: { next: 'bayleef', level: 16 }, bayleef: { next: 'meganium', level: 32 },
   cyndaquil: { next: 'quilava', level: 14 }, quilava: { next: 'typhlosion', level: 36 },
   totodile: { next: 'croconaw', level: 18 }, croconaw: { next: 'feraligatr', level: 30 },
@@ -213,7 +239,10 @@ const getFamilyMembers = (base: string): string[] => {
 };
 
 // Identify base Pokémon for each region (those that aren't the 'next' stage of something else)
-const EVOLVED_NAMES = new Set(Object.values(EVO_MAP).map(e => e.next));
+const EVOLVED_NAMES = new Set([
+  ...Object.values(EVO_MAP).map(e => e.next),
+  'hitmonlee', 'hitmonchan' // Manual additions for branching Tyrogue evos
+]);
 const KANTO_BASE = KANTO.filter(p => !EVOLVED_NAMES.has(p) && !LEGENDARY.includes(p));
 const JOHTO_BASE = JOHTO.filter(p => !EVOLVED_NAMES.has(p) && !LEGENDARY.includes(p));
 const HOENN_BASE = HOENN.filter(p => !EVOLVED_NAMES.has(p) && !LEGENDARY.includes(p));
@@ -265,7 +294,7 @@ const ItemShop = React.memo(({ candies, onBuy, t }: { candies: number, onBuy: (i
 
 const HeaderContent = React.memo(({
     stats, buyEgg, buyItem, levelUp, handleEvolve, activeTab, setActiveTab, canEvolve, alreadyHasEvo, evoInfo, lang, setLang, t,
-    canShowShinyToggle, showShinies, setShowShinies
+    canShowShinyToggle, showShinies, setShowShinies, pokedexRegion, setPokedexRegion, ownedSet, showTutorial, setShowTutorial
 }: any) => {
     if (!t) return null;
     return (
@@ -273,15 +302,33 @@ const HeaderContent = React.memo(({
             <View style={styles.header}>
                 <View style={styles.topRow}>
                     <Text style={styles.title}>{t.title || 'POKÉMON'}</Text>
-                    <TouchableOpacity onPress={() => setLang(lang === 'en' ? 'es' : 'en')} style={styles.langBtn}>
-                        <Text style={styles.langText}>{lang?.toUpperCase()}</Text>
-                    </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', gap: 10 }}>
+                        <TouchableOpacity onPress={() => setShowTutorial(!showTutorial)} style={styles.langBtn}>
+                            <Text style={styles.langText}>?</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => setLang(lang === 'en' ? 'es' : 'en')} style={styles.langBtn}>
+                            <Text style={styles.langText}>{lang?.toUpperCase()}</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
                 <View style={styles.statsRow}>
                     <View style={styles.statBox}><Text style={styles.statValue}>{stats.candies || 0}</Text><Text style={styles.statLabel}>{t.candies}</Text></View>
                     <View style={styles.statBox}><Text style={styles.statValue}>{stats.steps || 0}</Text><Text style={styles.statLabel}>{t.steps}</Text></View>
                 </View>
             </View>
+
+            {showTutorial && (
+                <View style={styles.tutorialBox}>
+                    <Text style={styles.tutorialTitle}>{t.tutorial.title}</Text>
+                    <Text style={styles.tutorialText}>{t.tutorial.steps}</Text>
+                    <Text style={styles.tutorialText}>{t.tutorial.partner}</Text>
+                    <Text style={styles.tutorialText}>{t.tutorial.actions}</Text>
+                    <Text style={styles.tutorialText}>{t.tutorial.evolve}</Text>
+                    <TouchableOpacity onPress={() => setShowTutorial(false)} style={styles.closeTutorial}>
+                        <Text style={styles.closeTutorialText}>OK</Text>
+                    </TouchableOpacity>
+                </View>
+            )}
 
             {stats.selectedPokemon ? (
                 <View style={styles.currentCard}>
@@ -366,6 +413,32 @@ const HeaderContent = React.memo(({
                 </TouchableOpacity>
             </View>
 
+            {activeTab === 'pokedex' && (
+                <View style={styles.regionSelectorRow}>
+                    <TouchableOpacity
+                        style={[styles.regionSelectorBtn, pokedexRegion === 'kanto' && styles.regionSelectorBtnActive]}
+                        onPress={() => setPokedexRegion('kanto')}
+                    >
+                        <Text style={[styles.regionSelectorText, pokedexRegion === 'kanto' && styles.regionSelectorTextActive]}>{t.regions.kanto}</Text>
+                        <Text style={styles.regionSelectorCount}>{KANTO.filter(p => ownedSet.has(p)).length}/{KANTO.length}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.regionSelectorBtn, pokedexRegion === 'johto' && styles.regionSelectorBtnActive]}
+                        onPress={() => setPokedexRegion('johto')}
+                    >
+                        <Text style={[styles.regionSelectorText, pokedexRegion === 'johto' && styles.regionSelectorTextActive]}>{t.regions.johto}</Text>
+                        <Text style={styles.regionSelectorCount}>{JOHTO.filter(p => ownedSet.has(p)).length}/{JOHTO.length}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.regionSelectorBtn, pokedexRegion === 'hoenn' && styles.regionSelectorBtnActive]}
+                        onPress={() => setPokedexRegion('hoenn')}
+                    >
+                        <Text style={[styles.regionSelectorText, pokedexRegion === 'hoenn' && styles.regionSelectorTextActive]}>{t.regions.hoenn}</Text>
+                        <Text style={styles.regionSelectorCount}>{HOENN.filter(p => ownedSet.has(p)).length}/{HOENN.length}</Text>
+                    </TouchableOpacity>
+                </View>
+            )}
+
             {canShowShinyToggle && (activeTab === 'pokedex') && (
                 <TouchableOpacity
                     style={[styles.shinyToggle, showShinies && styles.shinyToggleActive]}
@@ -385,6 +458,8 @@ export default function HomeScreen() {
   const [activeTab, setActiveTab] = useState<'eggs' | 'pokemon' | 'pokedex'>('eggs');
   const [lang, setLang] = useState<'en' | 'es'>('es');
   const [showShinies, setShowShinies] = useState(false);
+  const [pokedexRegion, setPokedexRegion] = useState<'kanto' | 'johto' | 'hoenn'>('kanto');
+  const [showTutorial, setShowTutorial] = useState(false);
 
   const t = I18N[lang];
 
@@ -422,7 +497,7 @@ export default function HomeScreen() {
     PokemonModule.switchPokemon(name);
   }, [stats.eggs, ownedSet, activeTab]);
 
-  const buyEgg = async (type: 'random' | 'kanto' | 'johto' | 'hoenn') => {
+  const buyEgg = useCallback(async (type: 'random' | 'kanto' | 'johto' | 'hoenn') => {
     await PokemonModule.requestPermissions();
     const cost = type === 'random' ? 30 : 60;
 
@@ -438,8 +513,6 @@ export default function HomeScreen() {
       const isLegendary = Math.random() * 100 < 1;
       let pool = isLegendary ? legendaryPool : basePool;
 
-      // Filtro: Solo bloqueamos si YA TIENES esa especie exacta (en huevo o eclosionado)
-      // Esto permite volver a conseguir un Totodile si el que tenías ya es un Feraligatr.
       pool = pool.filter(p => !heldSpecies.has(p));
 
       if (pool.length > 0) {
@@ -449,9 +522,9 @@ export default function HomeScreen() {
         fetchStats();
       }
     }
-  };
+  }, [stats.candies, heldSpecies]);
 
-  const handleEvolve = async () => {
+  const handleEvolve = useCallback(async () => {
     if (!stats.selectedPokemon) return;
     const evo = EVO_MAP[stats.selectedPokemon];
     if (!evo) return;
@@ -459,11 +532,11 @@ export default function HomeScreen() {
     const hasItem = evo.item ? stats.inventory.includes(evo.item) : true;
     const hasLevel = evo.level ? stats.level >= evo.level : true;
 
-    if (hasItem && hasLevel && !ownedSet.has(evo.next)) {
+    if (hasItem && hasLevel && !heldSpecies.has(evo.next)) {
       await PokemonModule.evolve(stats.selectedPokemon, evo.next, evo.item || null);
       fetchStats();
     }
-  };
+  }, [stats.selectedPokemon, stats.inventory, stats.level, heldSpecies]);
 
   const buyItem = useCallback(async (item: { name: string, cost: number }) => {
     if (stats.candies >= item.cost) {
@@ -472,15 +545,15 @@ export default function HomeScreen() {
     }
   }, [stats.candies]);
 
-  const levelUp = async () => {
+  const levelUp = useCallback(async () => {
     if (stats.candies >= 5 && stats.selectedPokemon) {
       await PokemonModule.addLevel(1);
       fetchStats();
     }
-  };
+  }, [stats.candies, stats.selectedPokemon]);
 
   const evoInfo = useMemo(() => stats.selectedPokemon ? EVO_MAP[stats.selectedPokemon] : null, [stats.selectedPokemon]);
-  const alreadyHasEvo = useMemo(() => evoInfo && ownedSet.has(evoInfo.next), [evoInfo, ownedSet]);
+  const alreadyHasEvo = useMemo(() => evoInfo && heldSpecies.has(evoInfo.next), [evoInfo, heldSpecies]);
   const hasRequiredItem = useMemo(() => evoInfo?.item ? stats.inventory.includes(evoInfo.item) : true, [evoInfo, stats.inventory]);
   const hasRequiredLevel = useMemo(() => evoInfo?.level ? stats.level >= evoInfo.level : true, [evoInfo, stats.level]);
   const canEvolve = useMemo(() => evoInfo && hasRequiredItem && hasRequiredLevel && !alreadyHasEvo, [evoInfo, hasRequiredItem, hasRequiredLevel, alreadyHasEvo]);
@@ -490,30 +563,6 @@ export default function HomeScreen() {
   const isHoennComplete = useMemo(() => HOENN.length > 0 && HOENN.every(p => ownedSet.has(p)), [ownedSet]);
 
   const canShowShinyToggle = (activeTab === 'pokedex') && (isKantoComplete || isJohtoComplete || isHoennComplete);
-
-  const pokedexFlattened = useMemo(() => {
-    const data: any[] = [];
-    data.push({ type: 'header', title: t.regions.kanto });
-    KANTO.forEach(p => data.push(p));
-    data.push({ type: 'header', title: t.regions.johto });
-    JOHTO.forEach(p => data.push(p));
-    data.push({ type: 'header', title: t.regions.hoenn });
-    HOENN.forEach(p => data.push(p));
-    return data;
-  }, [t]);
-
-  const chunk = (arr: any[], size: number) =>
-    Array.from({ length: Math.ceil(arr.length / size) }, (v, i) =>
-      arr.slice(i * size, i * size + size)
-    );
-
-  const pokedexSections = useMemo(() => {
-    return [
-      { title: t.regions.kanto, data: chunk(KANTO, 3) },
-      { title: t.regions.johto, data: chunk(JOHTO, 3) },
-      { title: t.regions.hoenn, data: chunk(HOENN, 3) },
-    ];
-  }, [t]);
 
   const renderSingleItem = useCallback(({ item }: any) => {
     const isActuallyHatched = ownedSet.has(item);
@@ -537,48 +586,23 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <LinearGradient colors={['#0f172a', '#1e293b']} style={styles.bg}>
-        {activeTab === 'pokedex' ? (
-            <SectionList
-                sections={pokedexSections}
-                keyExtractor={(item, index) => `row-${index}`}
-                renderSectionHeader={({ section: { title } }) => (
-                    <Text style={styles.sectionHeader}>{title}</Text>
-                )}
-                renderItem={({ item }) => (
-                    <View style={styles.row}>
-                        {item.map((p: string) => (
-                            <View key={p} style={{ flex: 1 }}>
-                                {renderSingleItem({ item: p })}
-                            </View>
-                        ))}
-                        {item.length < 3 && Array(3 - item.length).fill(0).map((_, i) => <View key={`empty-${i}`} style={{ flex: 1 }} />)}
-                    </View>
-                )}
-                ListHeaderComponent={
-                    <HeaderContent
-                        stats={stats} buyEgg={buyEgg} buyItem={buyItem} levelUp={levelUp}
-                        handleEvolve={handleEvolve} activeTab={activeTab} setActiveTab={setActiveTab}
-                        canEvolve={canEvolve} alreadyHasEvo={alreadyHasEvo} evoInfo={evoInfo}
-                        lang={lang} setLang={setLang} t={t} canShowShinyToggle={canShowShinyToggle}
-                        showShinies={showShinies} setShowShinies={setShowShinies}
-                    />
-                }
-                stickySectionHeadersEnabled={false}
-                contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
-            />
-        ) : (
             <FlatList
-                data={activeTab === 'eggs' ? stats.eggs : stats.ownedPokemon}
+                data={activeTab === 'pokedex' ? (pokedexRegion === 'kanto' ? KANTO : pokedexRegion === 'johto' ? JOHTO : HOENN) : (activeTab === 'eggs' ? stats.eggs : stats.ownedPokemon)}
                 keyExtractor={(item, index) => typeof item === 'string' ? item : `egg-${index}`}
-                numColumns={3}
-                key={`list-${activeTab}`}
+                numColumns={4}
+                key="stable-list"
                 ListHeaderComponent={
-                    <HeaderContent
-                        stats={stats} buyEgg={buyEgg} buyItem={buyItem} levelUp={levelUp}
-                        handleEvolve={handleEvolve} activeTab={activeTab} setActiveTab={setActiveTab}
-                        canEvolve={canEvolve} alreadyHasEvo={alreadyHasEvo} evoInfo={evoInfo}
-                        lang={lang} setLang={setLang} t={t}
-                    />
+                    <View>
+                        <HeaderContent
+                            stats={stats} buyEgg={buyEgg} buyItem={buyItem} levelUp={levelUp}
+                            handleEvolve={handleEvolve} activeTab={activeTab} setActiveTab={setActiveTab}
+                            canEvolve={canEvolve} alreadyHasEvo={alreadyHasEvo} evoInfo={evoInfo}
+                            lang={lang} setLang={setLang} t={t} canShowShinyToggle={canShowShinyToggle}
+                            showShinies={showShinies} setShowShinies={setShowShinies}
+                            pokedexRegion={pokedexRegion} setPokedexRegion={setPokedexRegion}
+                            ownedSet={ownedSet} showTutorial={showTutorial} setShowTutorial={setShowTutorial}
+                        />
+                    </View>
                 }
                 renderItem={({ item }) => {
                     const species = typeof item === 'string' ? item : item.species;
@@ -591,7 +615,6 @@ export default function HomeScreen() {
                 }
                 contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
             />
-        )}
       </LinearGradient>
     </SafeAreaView>
   );
@@ -646,15 +669,33 @@ const styles = StyleSheet.create({
   activeTabText: { color: '#000' },
   sectionHeader: { color: '#fbbf24', fontSize: 14, fontWeight: '900', marginTop: 30, marginBottom: 10, letterSpacing: 2, width: '100%' },
   row: { flexDirection: 'row', justifyContent: 'flex-start' },
-  gridItem: { width: (Dimensions.get('window').width - 60) / 3, aspectRatio: 0.9, margin: 5, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
-  gridIcon: { width: 45, height: 45 },
+  gridItem: { width: (Dimensions.get('window').width - 70) / 4, aspectRatio: 0.9, margin: 4, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
+  gridIcon: { width: 35, height: 35 },
   eggIcon: { width: 35, height: 35, marginBottom: 5 },
-  gridName: { color: '#64748b', fontSize: 7, fontWeight: 'bold', marginTop: 5, textAlign: 'center' },
+  gridName: { color: '#64748b', fontSize: 6, fontWeight: 'bold', marginTop: 3, textAlign: 'center' },
   selectedItem: { borderColor: '#38bdf8', backgroundColor: 'rgba(56,189,248,0.1)' },
   emptyContainer: { padding: 40, alignItems: 'center' },
   emptyText: { color: '#64748b', textAlign: 'center', fontSize: 12 },
+  regionSelectorRow: { flexDirection: 'row', gap: 8, marginBottom: 15 },
+  regionSelectorBtn: { flex: 1, backgroundColor: 'rgba(255,255,255,0.03)', paddingVertical: 10, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
+  regionSelectorBtnActive: { backgroundColor: 'rgba(56,189,248,0.1)', borderColor: '#38bdf8' },
+  regionSelectorText: { color: '#64748b', fontSize: 10, fontWeight: '900' },
+  regionSelectorTextActive: { color: '#38bdf8' },
+  regionSelectorCount: { color: 'rgba(255,255,255,0.4)', fontSize: 8, fontWeight: 'bold', marginTop: 2 },
   shinyToggle: { backgroundColor: 'rgba(255,255,255,0.05)', marginHorizontal: 20, padding: 12, borderRadius: 15, alignItems: 'center', marginBottom: 15, borderWidth: 1, borderColor: 'rgba(251,191,36,0.2)' },
   shinyToggleActive: { backgroundColor: 'rgba(251,191,36,0.1)', borderColor: '#fbbf24' },
   shinyToggleText: { color: '#64748b', fontSize: 11, fontWeight: '900' },
-  shinyToggleTextActive: { color: '#fbbf24' }
+  shinyToggleTextActive: { color: '#fbbf24' },
+  regionGrid: { gap: 10, marginTop: 10 },
+  bigRegionBtn: { borderRadius: 20, overflow: 'hidden' },
+  regionGradient: { padding: 25, alignItems: 'center', justifyContent: 'center' },
+  bigRegionText: { color: '#fff', fontSize: 20, fontWeight: '900', letterSpacing: 2 },
+  regionCount: { color: 'rgba(255,255,255,0.8)', fontSize: 12, fontWeight: 'bold', marginTop: 5 },
+  backBtn: { backgroundColor: 'rgba(255,255,255,0.05)', padding: 12, borderRadius: 15, marginBottom: 15, alignSelf: 'flex-start' },
+  backBtnText: { color: '#38bdf8', fontSize: 14, fontWeight: 'bold' },
+  tutorialBox: { backgroundColor: 'rgba(56,189,248,0.1)', borderWith: 1, borderColor: '#38bdf8', borderRadius: 20, padding: 20, marginBottom: 20 },
+  tutorialTitle: { color: '#38bdf8', fontSize: 18, fontWeight: '900', marginBottom: 15, letterSpacing: 1 },
+  tutorialText: { color: '#fff', fontSize: 12, marginBottom: 10, lineHeight: 18 },
+  closeTutorial: { backgroundColor: '#38bdf8', paddingVertical: 8, paddingHorizontal: 20, borderRadius: 10, alignSelf: 'flex-end', marginTop: 5 },
+  closeTutorialText: { color: '#000', fontWeight: 'bold', fontSize: 12 }
 });

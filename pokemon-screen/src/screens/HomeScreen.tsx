@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Dimensions, NativeModules, ScrollView, SafeAreaView, Image, FlatList, SectionList } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, Dimensions, NativeModules, ScrollView, SafeAreaView, Image, FlatList, SectionList, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
 const { PokemonModule } = NativeModules;
@@ -45,17 +45,20 @@ const I18N: any = {
     locked: "LOCKED",
     max: "MAX",
     re_summon: "RE-SUMMON",
-    tabs: { eggs: "EGGS", pokemon: "MY POKÉMON", pokedex: "POKÉDEX" },
+    tabs: { eggs: "EGGS", pokemon: "MY POKÉMON", pokedex: "POKÉDEX", bag: "BAG" },
     tutorial: {
       title: "HOW TO PLAY",
       steps: "👣 Walk to hatch eggs and earn candies (1🍬 every 50 steps).",
       partner: "✨ Set a partner to see it on your screen!",
       actions: "👆 Tap your Pokémon to hear its cry. Long press or tap 5 times to unsummon.",
-      evolve: "🧬 Level up and use items to evolve your team."
+      evolve: "🧬 Level up and use items to evolve your team.",
+      bag: "🎒 Check your items in the Bag tab."
     },
     empty_eggs: "No eggs yet!",
     empty_pokemon: "No Pokémon yet!",
     regions: { kanto: "KANTO", johto: "JOHTO", hoenn: "HOENN" },
+    buy_candies: "BUY 50 CANDIES",
+    ludopata_msg: "Don't be a gambling addict, for God's sake",
     items: {
         'Fire Stone': 'Fire Stone',
         'Water Stone': 'Water Stone',
@@ -86,17 +89,20 @@ const I18N: any = {
     locked: "BLOQUEADO",
     max: "NIVEL MÁX",
     re_summon: "RE-INVOCAR",
-    tabs: { eggs: "HUEVOS", pokemon: "MIS POKÉMON", pokedex: "POKÉDEX" },
+    tabs: { eggs: "HUEVOS", pokemon: "MIS POKÉMON", pokedex: "POKÉDEX", bag: "BOLSA" },
     tutorial: {
       title: "CÓMO JUGAR",
       steps: "👣 Camina para eclosionar huevos y ganar caramelos (1🍬 cada 50 pasos).",
       partner: "✨ ¡Elige un compañero para que aparezca en tu pantalla!",
       actions: "👆 Toca a tu Pokémon para oír su grito. Mantén pulsado o toca 5 veces para desinvocar.",
-      evolve: "🧬 Sube de nivel y usa objetos para evolucionar a tu equipo."
+      evolve: "🧬 Sube de nivel y usa objetos para evolucionar a tu equipo.",
+      bag: "🎒 Revisa tus objetos en la pestaña Bolsa."
     },
     empty_eggs: "¡No tienes huevos!",
     empty_pokemon: "¡No tienes Pokémon!",
     regions: { kanto: "KANTO", johto: "JOHTO", hoenn: "HOENN" },
+    buy_candies: "COMPRAR 50 CARAMELOS",
+    ludopata_msg: "No me seas ludópata por dios",
     items: {
         'Fire Stone': 'Piedra Fuego',
         'Water Stone': 'Piedra Agua',
@@ -241,7 +247,11 @@ const getFamilyMembers = (base: string): string[] => {
 // Identify base Pokémon for each region (those that aren't the 'next' stage of something else)
 const EVOLVED_NAMES = new Set([
   ...Object.values(EVO_MAP).map(e => e.next),
-  'hitmonlee', 'hitmonchan' // Manual additions for branching Tyrogue evos
+  'hitmonlee', 'hitmonchan', // Branching Tyrogue
+  'jolteon', 'flareon',       // Branching Eevee
+  'politoed', 'bellossom',    // Branching Poliwhirl/Gloom
+  'espeon', 'umbreon',        // Gen 2 Eeveelutions
+  'porygon2', 'slowking'      // Others
 ]);
 const KANTO_BASE = KANTO.filter(p => !EVOLVED_NAMES.has(p) && !LEGENDARY.includes(p));
 const JOHTO_BASE = JOHTO.filter(p => !EVOLVED_NAMES.has(p) && !LEGENDARY.includes(p));
@@ -253,6 +263,25 @@ const getIconUri = (name: string) => {
   const id = POKE_IDS[name.toLowerCase()] || 158;
   return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-vii/icons/${id}.png`;
 };
+
+const getAnimatedIconUri = (name: string) => {
+  if (!name) return "";
+  const lowerName = name.toLowerCase().replace(" ", "-");
+  // Pokémon DB has a very reliable animated sprite set
+  return `https://img.pokemondb.net/sprites/black-white/anim/normal/${lowerName}.gif`;
+};
+
+const ItemGridItem = React.memo(({ item, t }: { item: any, t: any }) => {
+    return (
+        <View style={styles.gridItem}>
+            <Image source={ITEM_ICONS[item.name]} style={styles.gridIcon} resizeMode="contain" />
+            <Text style={styles.gridName}>{t.items[item.name] || item.name}</Text>
+            <View style={styles.itemCountBadge}>
+                <Text style={styles.itemCountText}>x{item.count}</Text>
+            </View>
+        </View>
+    );
+});
 
 const PokemonGridItem = React.memo(({ item, isOwned, isSelected, onPress, isEgg }: { item: string | any; isOwned: boolean; isSelected: boolean; onPress: (name: string) => void; isEgg?: boolean }) => {
   const name = typeof item === 'string' ? item : item?.species;
@@ -336,7 +365,7 @@ const HeaderContent = React.memo(({
                     {!stats.isHatched ? (
                         <Image source={ITEM_ICONS['Egg']} style={styles.mainEggIcon} resizeMode="contain" />
                     ) : (
-                        <Image source={{ uri: getIconUri(stats.selectedPokemon) }} style={styles.mainPokemonIcon} />
+                        <Image source={{ uri: getAnimatedIconUri(stats.selectedPokemon) }} style={styles.mainPokemonIcon} resizeMode="contain" />
                     )}
                     <Text style={styles.pokemonName}>{stats.isHatched ? stats.selectedPokemon.toUpperCase() : t.egg}</Text>
                     <View style={styles.infoRow}>
@@ -360,6 +389,9 @@ const HeaderContent = React.memo(({
 
             <View style={styles.shopContainer}>
                 <View style={styles.shopGrid}>
+                    <TouchableOpacity style={[styles.regionBtn, { minWidth: '100%', backgroundColor: '#334155' }]} onPress={() => Alert.alert("EPA!", t.ludopata_msg)}>
+                        <Text style={styles.btnTitleSmall}>✨ {t.buy_candies} ✨</Text>
+                    </TouchableOpacity>
                     <TouchableOpacity style={styles.regionBtn} onPress={() => buyEgg('random')}>
                         <Image source={ITEM_ICONS['Egg']} style={styles.eggBtnIcon} resizeMode="contain" />
                         <Text style={styles.btnTitleSmall}>{t.buy_egg}</Text>
@@ -401,17 +433,20 @@ const HeaderContent = React.memo(({
                 </View>
             </View>
 
-            <View style={styles.tabBar}>
-                <TouchableOpacity style={[styles.tab, activeTab === 'eggs' && styles.activeTab]} onPress={() => setActiveTab('eggs')}>
-                    <Text style={[styles.tabText, activeTab === 'eggs' && styles.activeTabText]}>{t.tabs?.eggs}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.tab, activeTab === 'pokemon' && styles.activeTab]} onPress={() => setActiveTab('pokemon')}>
-                    <Text style={[styles.tabText, activeTab === 'pokemon' && styles.activeTabText]}>{t.tabs?.pokemon}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.tab, activeTab === 'pokedex' && styles.activeTab]} onPress={() => setActiveTab('pokedex')}>
-                    <Text style={[styles.tabText, activeTab === 'pokedex' && styles.activeTabText]}>{t.tabs?.pokedex}</Text>
-                </TouchableOpacity>
-            </View>
+                <View style={styles.tabBar}>
+                    <TouchableOpacity style={[styles.tab, activeTab === 'eggs' && styles.activeTab]} onPress={() => setActiveTab('eggs')}>
+                        <Text style={[styles.tabText, activeTab === 'eggs' && styles.activeTabText]}>{t.tabs?.eggs}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.tab, activeTab === 'pokemon' && styles.activeTab]} onPress={() => setActiveTab('pokemon')}>
+                        <Text style={[styles.tabText, activeTab === 'pokemon' && styles.activeTabText]}>{t.tabs?.pokemon}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.tab, activeTab === 'bag' && styles.activeTab]} onPress={() => setActiveTab('bag')}>
+                        <Text style={[styles.tabText, activeTab === 'bag' && styles.activeTabText]}>{t.tabs?.bag}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.tab, activeTab === 'pokedex' && styles.activeTab]} onPress={() => setActiveTab('pokedex')}>
+                        <Text style={[styles.tabText, activeTab === 'pokedex' && styles.activeTabText]}>{t.tabs?.pokedex}</Text>
+                    </TouchableOpacity>
+                </View>
 
             {activeTab === 'pokedex' && (
                 <View style={styles.regionSelectorRow}>
@@ -455,7 +490,7 @@ const HeaderContent = React.memo(({
 
 export default function HomeScreen() {
   const [stats, setStats] = useState({ steps: 0, level: 1, isHatched: false, selectedPokemon: null, candies: 0, eggsBought: 0, ownedPokemon: [], eggs: [], inventory: [] });
-  const [activeTab, setActiveTab] = useState<'eggs' | 'pokemon' | 'pokedex'>('eggs');
+  const [activeTab, setActiveTab] = useState<'eggs' | 'pokemon' | 'pokedex' | 'bag'>('eggs');
   const [lang, setLang] = useState<'en' | 'es'>('es');
   const [showShinies, setShowShinies] = useState(false);
   const [pokedexRegion, setPokedexRegion] = useState<'kanto' | 'johto' | 'hoenn'>('kanto');
@@ -529,7 +564,8 @@ export default function HomeScreen() {
     const evo = EVO_MAP[stats.selectedPokemon];
     if (!evo) return;
 
-    const hasItem = evo.item ? stats.inventory.includes(evo.item) : true;
+    const inventoryItem = stats.inventory.find((i: any) => i.name === evo.item);
+    const hasItem = evo.item ? (inventoryItem && inventoryItem.count > 0) : true;
     const hasLevel = evo.level ? stats.level >= evo.level : true;
 
     if (hasItem && hasLevel && !heldSpecies.has(evo.next)) {
@@ -554,7 +590,11 @@ export default function HomeScreen() {
 
   const evoInfo = useMemo(() => stats.selectedPokemon ? EVO_MAP[stats.selectedPokemon] : null, [stats.selectedPokemon]);
   const alreadyHasEvo = useMemo(() => evoInfo && heldSpecies.has(evoInfo.next), [evoInfo, heldSpecies]);
-  const hasRequiredItem = useMemo(() => evoInfo?.item ? stats.inventory.includes(evoInfo.item) : true, [evoInfo, stats.inventory]);
+  const hasRequiredItem = useMemo(() => {
+      if (!evoInfo?.item) return true;
+      const item = stats.inventory.find((i: any) => i.name === evoInfo.item);
+      return item && item.count > 0;
+  }, [evoInfo, stats.inventory]);
   const hasRequiredLevel = useMemo(() => evoInfo?.level ? stats.level >= evoInfo.level : true, [evoInfo, stats.level]);
   const canEvolve = useMemo(() => evoInfo && hasRequiredItem && hasRequiredLevel && !alreadyHasEvo, [evoInfo, hasRequiredItem, hasRequiredLevel, alreadyHasEvo]);
 
@@ -587,8 +627,8 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.container}>
       <LinearGradient colors={['#0f172a', '#1e293b']} style={styles.bg}>
             <FlatList
-                data={activeTab === 'pokedex' ? (pokedexRegion === 'kanto' ? KANTO : pokedexRegion === 'johto' ? JOHTO : HOENN) : (activeTab === 'eggs' ? stats.eggs : stats.ownedPokemon)}
-                keyExtractor={(item, index) => typeof item === 'string' ? item : `egg-${index}`}
+                data={activeTab === 'pokedex' ? (pokedexRegion === 'kanto' ? KANTO : pokedexRegion === 'johto' ? JOHTO : HOENN) : (activeTab === 'eggs' ? stats.eggs : activeTab === 'bag' ? stats.inventory : stats.ownedPokemon)}
+                keyExtractor={(item, index) => typeof item === 'string' ? item : `${activeTab}-${index}`}
                 numColumns={4}
                 key="stable-list"
                 ListHeaderComponent={
@@ -605,12 +645,13 @@ export default function HomeScreen() {
                     </View>
                 }
                 renderItem={({ item }) => {
+                    if (activeTab === 'bag') return <ItemGridItem item={item} t={t} />;
                     const species = typeof item === 'string' ? item : item.species;
                     return renderSingleItem({ item: species });
                 }}
                 ListEmptyComponent={
                     <View style={styles.emptyContainer}>
-                        <Text style={styles.emptyText}>{activeTab === 'eggs' ? t.empty_eggs : t.empty_pokemon}</Text>
+                        <Text style={styles.emptyText}>{activeTab === 'eggs' ? t.empty_eggs : activeTab === 'bag' ? "Your bag is empty!" : t.empty_pokemon}</Text>
                     </View>
                 }
                 contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
@@ -633,7 +674,7 @@ const styles = StyleSheet.create({
   statValue: { color: '#fbbf24', fontSize: 20, fontWeight: '900' },
   statLabel: { color: '#64748b', fontSize: 9, fontWeight: 'bold' },
   currentCard: { backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 25, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
-  mainPokemonIcon: { width: 64, height: 64 },
+  mainPokemonIcon: { width: 100, height: 100, marginVertical: 10 },
   mainEggIcon: { width: 100, height: 100, marginBottom: 10 },
   eggIcon: { width: 50, height: 50, marginBottom: 5 },
   eggBtnIcon: { width: 45, height: 45, marginBottom: 2 },
@@ -673,6 +714,8 @@ const styles = StyleSheet.create({
   gridIcon: { width: 35, height: 35 },
   eggIcon: { width: 35, height: 35, marginBottom: 5 },
   gridName: { color: '#64748b', fontSize: 6, fontWeight: 'bold', marginTop: 3, textAlign: 'center' },
+  itemCountBadge: { position: 'absolute', top: 5, right: 5, backgroundColor: '#fbbf24', borderRadius: 10, paddingHorizontal: 4, paddingVertical: 2 },
+  itemCountText: { color: '#000', fontSize: 8, fontWeight: '900' },
   selectedItem: { borderColor: '#38bdf8', backgroundColor: 'rgba(56,189,248,0.1)' },
   emptyContainer: { padding: 40, alignItems: 'center' },
   emptyText: { color: '#64748b', textAlign: 'center', fontSize: 12 },

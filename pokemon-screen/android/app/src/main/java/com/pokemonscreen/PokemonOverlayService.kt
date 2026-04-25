@@ -2,6 +2,7 @@ package com.pokemonscreen
 
 import android.app.*
 import android.content.*
+import android.content.pm.ServiceInfo
 import android.content.res.Configuration
 import android.graphics.*
 import android.hardware.*
@@ -18,6 +19,7 @@ class PokemonOverlayService : Service(), SensorEventListener {
     private var movie: Movie? = null
     private var lastTick: Long = 0
     private var mediaPlayer: MediaPlayer? = null
+    private var velocityTracker: VelocityTracker? = null
     private lateinit var sensorManager: SensorManager
     private var stepSensor: Sensor? = null
     private var accelSensor: Sensor? = null
@@ -29,6 +31,7 @@ class PokemonOverlayService : Service(), SensorEventListener {
     private var candies = 0
     private var isVisible = true
     private var isPressed = false
+    private var lastCryTime = 0L
     private val stepsPerCandy = 50
     private val scaleFactor = 3.2f
 
@@ -40,6 +43,11 @@ class PokemonOverlayService : Service(), SensorEventListener {
     private var posY = 500f
     private var velX = 1.2f
     private var velY = 0.8f
+    private var initialX = 0f
+    private var initialY = 0f
+    private var initialTouchX = 0f
+    private var initialTouchY = 0f
+    private var isDragging = false
     private var screenWidth = 0
     private var screenHeight = 0
     private var pauseUntil = 0L
@@ -69,24 +77,53 @@ class PokemonOverlayService : Service(), SensorEventListener {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, createNotification())
+        
+        val notification = createNotification()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
 
-        intent?.getStringExtra("pokemon")?.let { newPoke ->
-            if (newPoke != selectedPokemon) {
+        val pokemonNameFromIntent = intent?.getStringExtra("pokemon")
+        if (pokemonNameFromIntent != null) {
+            if (pokemonNameFromIntent != selectedPokemon) {
                 saveData()
-                selectedPokemon = newPoke
+                selectedPokemon = pokemonNameFromIntent
                 loadData()
                 loadMovies()
-                activeOverlay?.postInvalidate()
+            } else {
+                loadMovies() // Asegurar carga incluso si el nombre coincide
             }
-        } ?: run {
+        } else {
             loadData()
             loadMovies()
         }
 
         registerSensors()
         isVisible = true
-        activeOverlay?.visibility = View.VISIBLE
+        pauseUntil = 0L
+        lastTick = SystemClock.uptimeMillis() // Inicializar con el tiempo actual en lugar de 0L
+
+        activeOverlay?.let { view ->
+            view.visibility = View.VISIBLE
+            view.animate().cancel()
+            view.translationY = 0f
+            
+            // Forzar redibujo inmediato
+            view.postInvalidate()
+
+            // Animación de aparición (siempre, para consistencia)
+            view.alpha = 0f
+            view.scaleX = 0.5f
+            view.scaleY = 0.5f
+            view.animate()
+                .alpha(1f)
+                .scaleX(1f)
+                .scaleY(1f)
+                .setDuration(400)
+                .start()
+        }
 
         intent?.getIntExtra("addSteps", 0)?.let { extra ->
             if (extra > 0) addSteps(extra)
@@ -114,10 +151,16 @@ class PokemonOverlayService : Service(), SensorEventListener {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         updateScreenSize()
-        // Reposicionar si queda fuera tras rotación
+        // Reposicionar si queda fuera tras rotación, considerando el padding interno
         activeOverlay?.let { view ->
-            if (posX + view.width > screenWidth) posX = (screenWidth - view.width).toFloat().coerceAtLeast(0f)
-            if (posY + view.height > screenHeight) posY = (screenHeight - view.height).toFloat().coerceAtLeast(0f)
+            val spriteW = (if (isHatched && movie != null) movie!!.width().toFloat() else 30f) * scaleFactor
+            val paddingX = 10f * scaleFactor
+            if (posX + paddingX + spriteW > screenWidth) {
+                posX = screenWidth - paddingX - spriteW
+            }
+            if (posY + view.height > screenHeight) {
+                posY = (screenHeight - view.height).toFloat().coerceAtLeast(0f)
+            }
         }
     }
 
@@ -132,13 +175,13 @@ class PokemonOverlayService : Service(), SensorEventListener {
 
     private fun saveData() {
         val prefs = getSharedPreferences("pokemon_prefs", Context.MODE_PRIVATE)
+        // Cargamos los caramelos reales antes de guardar para no pisar cambios de la UI
+        val globalCandies = prefs.getInt("global_candies", candies)
         prefs.edit().apply {
             putInt("${selectedPokemon}_steps", currentSteps)
             putInt("${selectedPokemon}_level", level)
             putBoolean("${selectedPokemon}_isHatched", isHatched)
-            // Ya no guardamos "selectedPokemon" aquí para evitar que sobrescriba 
-            // el cambio realizado por PokemonModule.switchPokemon
-            putInt("global_candies", candies)
+            putInt("global_candies", globalCandies)
             apply()
         }
     }
@@ -186,8 +229,18 @@ class PokemonOverlayService : Service(), SensorEventListener {
     private fun loadMovies() {
         try {
             val id = resources.getIdentifier(selectedPokemon, "raw", packageName)
-            movie = if (id != 0) Movie.decodeStream(resources.openRawResource(id)) else null
-        } catch (e: Exception) { e.printStackTrace() }
+            if (id != 0) {
+                val inputStream = resources.openRawResource(id)
+                val bytes = inputStream.readBytes()
+                movie = Movie.decodeByteArray(bytes, 0, bytes.size)
+                inputStream.close()
+            } else {
+                movie = null
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            movie = null
+        }
     }
 
     private fun createNotificationChannel() {
@@ -236,65 +289,144 @@ class PokemonOverlayService : Service(), SensorEventListener {
             PixelFormat.TRANSLUCENT
         )
         params.gravity = Gravity.TOP or Gravity.LEFT
-        params.x = screenWidth / 2; params.y = screenHeight / 2
+        
+        // Sincronizar posición inicial
+        posX = (screenWidth / 2f) - (50f * scaleFactor)
+        posY = (screenHeight / 2f)
+        params.x = posX.toInt()
+        params.y = posY.toInt()
 
         val v = object : View(this) {
             val viewRef = this
             private var tapCount = 0
             private var firstTapTime = 0L
+            private val longPressHandler = Handler(Looper.getMainLooper())
+            private val longPressRunnable = Runnable {
+                if (isPressed && !isDragging && isVisible) {
+                    showMenu(viewRef)
+                }
+            }
             
             init {
-                // SOLUCIÓN GHOSTING: Usar modo SOFTWARE evita que la GPU guarde rastro de frames anteriores
                 setLayerType(LAYER_TYPE_SOFTWARE, null)
             }
 
-            val detector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
-                override fun onLongPress(e: MotionEvent) { showMenu(viewRef) }
-                override fun onSingleTapUp(e: MotionEvent): Boolean {
-                    val now = SystemClock.uptimeMillis()
-                    if (now - firstTapTime > 2000) {
-                        tapCount = 1
-                        firstTapTime = now
-                    } else {
-                        tapCount++
-                        if (tapCount >= 5) {
-                            isVisible = false
-                            viewRef.visibility = View.GONE
-                            tapCount = 0
-                            return true
-                        }
+            private fun handleTap() {
+                val now = SystemClock.uptimeMillis()
+                if (now - firstTapTime > 2000) {
+                    tapCount = 1
+                    firstTapTime = now
+                } else {
+                    tapCount++
+                    if (tapCount >= 5) {
+                        tapCount = 0
+                        hideOverlay(viewRef)
+                        return
+                    }
+                }
+
+                if (isHatched) { 
+                    if (now - lastCryTime > 2000) {
+                        playCry()
+                        lastCryTime = now
+                    }
+                    
+                    if (Math.abs(velX) < 0.5f && Math.abs(velY) < 0.5f) {
+                        velX = (java.util.Random().nextFloat() * 2f - 1f) * 4f
+                        velY = (java.util.Random().nextFloat() * 2f - 1f) * 4f
                     }
 
-                    if (isHatched) { 
-                        playCry()
-                        pauseUntil = SystemClock.uptimeMillis() + 5000
-                        viewRef.animate().translationYBy(-100f).setDuration(150).withEndAction { viewRef.animate().translationYBy(100f).setDuration(150).start() }.start() 
-                    }
-                    return true
+                    pauseUntil = SystemClock.uptimeMillis() + 5000
+                    viewRef.animate().cancel()
+                    viewRef.translationY = 0f
+                    viewRef.animate().translationY(-100f).setDuration(150).withEndAction { 
+                        viewRef.animate().translationY(0f).setDuration(150).start() 
+                    }.start() 
                 }
-            })
+            }
+
             override fun onTouchEvent(event: MotionEvent): Boolean {
-                if (event.action == MotionEvent.ACTION_DOWN) isPressed = true
-                if (event.action == MotionEvent.ACTION_UP || event.action == MotionEvent.ACTION_CANCEL) isPressed = false
-                return detector.onTouchEvent(event)
+                if (!isVisible) return false
+
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        isPressed = true
+                        initialX = posX
+                        initialY = posY
+                        initialTouchX = event.rawX
+                        initialTouchY = event.rawY
+                        isDragging = false
+                        
+                        velocityTracker?.recycle()
+                        velocityTracker = VelocityTracker.obtain()
+                        velocityTracker?.addMovement(event)
+
+                        longPressHandler.removeCallbacks(longPressRunnable)
+                        longPressHandler.postDelayed(longPressRunnable, 800) // 800ms para el menú
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        velocityTracker?.addMovement(event)
+                        val dx = event.rawX - initialTouchX
+                        val dy = event.rawY - initialTouchY
+                        if (Math.abs(dx) > 15 || Math.abs(dy) > 15) {
+                            if (!isDragging) {
+                                isDragging = true
+                                pauseUntil = 0L // CANCELAR PAUSA AL ARRASTRAR
+                                longPressHandler.removeCallbacks(longPressRunnable)
+                            }
+                            posX = initialX + dx
+                            posY = initialY + dy
+                            
+                            val params = viewRef.layoutParams as WindowManager.LayoutParams
+                            params.x = posX.toInt()
+                            params.y = posY.toInt()
+                            if (viewRef.isAttachedToWindow) {
+                                windowManager.updateViewLayout(viewRef, params)
+                            }
+                        }
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        longPressHandler.removeCallbacks(longPressRunnable)
+                        if (!isDragging && event.action == MotionEvent.ACTION_UP) {
+                            handleTap()
+                        } else if (isDragging) {
+                            velocityTracker?.addMovement(event)
+                            velocityTracker?.computeCurrentVelocity(1000)
+                            velX = (velocityTracker?.xVelocity ?: 0f) / 60f
+                            velY = (velocityTracker?.yVelocity ?: 0f) / 60f
+                            velX = velX.coerceIn(-40f, 40f)
+                            velY = velY.coerceIn(-40f, 40f)
+                        }
+                        isPressed = false
+                        velocityTracker?.recycle()
+                        velocityTracker = null
+                    }
+                }
+                return true
             }
             override fun onDraw(canvas: Canvas) {
                 val now = SystemClock.uptimeMillis()
-                if (lastTick == 0L) lastTick = now
+                // Si lastTick es 0 o el tiempo ha saltado extrañamente, reiniciamos
+                if (lastTick == 0L || now < lastTick) lastTick = now
                 
-                // LIMPIEZA TOTAL: Evita el efecto doble/fantasma limpiando el buffer
                 canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
                 
                 canvas.save()
-                canvas.translate(10f * scaleFactor, 10f * scaleFactor)
+                canvas.translate(10f * scaleFactor, 30f * scaleFactor)
 
                 if (isHatched) {
                     canvas.scale(scaleFactor, scaleFactor)
                     movie?.let { m ->
-                        // El flip se aplica SOLO al dibujo del movie
                         canvas.save()
                         if (velX > 0) canvas.scale(-1f, 1f, m.width() / 2f, 0f)
-                        m.setTime(((now - lastTick) % m.duration().coerceAtLeast(1)).toInt())
+                        
+                        val duration = m.duration()
+                        if (duration > 0) {
+                            m.setTime(((now - lastTick) % duration).toInt())
+                        } else {
+                            m.setTime(0)
+                        }
+                        
                         var offsetY = 0f
                         val bigOnes = listOf("onix", "ho_oh", "steelix", "gyarados", "lugia", "tyranitar", "charizard", "dragonite", "venusaur", "blastoise", "articuno", "zapdos", "moltres", "mewtwo")
                         if (bigOnes.contains(selectedPokemon)) {
@@ -305,7 +437,7 @@ class PokemonOverlayService : Service(), SensorEventListener {
                     }
                 } else {
                     canvas.scale(scaleFactor, scaleFactor)
-                    val angle = (Math.sin(now / 150.0) * 15.0).toFloat()
+                    val angle = (sin(now / 150.0) * 15.0).toFloat()
                     canvas.rotate(angle, 15f, 40f) 
                     val p = Paint().apply { isAntiAlias = true }
                     p.color = Color.parseColor("#E5E7EB"); canvas.drawOval(2f, 2f, 32f, 42f, p)
@@ -329,12 +461,13 @@ class PokemonOverlayService : Service(), SensorEventListener {
                     if (part.life <= 0) iterator.remove()
                 }
 
-                invalidate()
+                postInvalidateOnAnimation()
             }
             override fun onMeasure(specW: Int, specH: Int) {
                 val w = if (isHatched && movie != null) movie!!.width() else 40
                 val h = if (isHatched && movie != null) movie!!.height() else 50
-                setMeasuredDimension(((w + 40) * scaleFactor).toInt(), ((h + 40) * scaleFactor).toInt())
+                // Aumentamos el espacio extra para evitar cortes (de 40 a 80)
+                setMeasuredDimension(((w + 60) * scaleFactor).toInt(), ((h + 80) * scaleFactor).toInt())
             }
         }
         activeOverlay = v
@@ -344,8 +477,25 @@ class PokemonOverlayService : Service(), SensorEventListener {
 
     private fun showMenu(view: View) {
         val popup = PopupMenu(this, view)
-        popup.menu.add("Desinvocar").setOnMenuItemClickListener { isVisible = false; view.visibility = View.GONE; true }
+        popup.menu.add("Desinvocar").setOnMenuItemClickListener { 
+            hideOverlay(view)
+            true 
+        }
         popup.show()
+    }
+
+    private fun hideOverlay(view: View) {
+        isVisible = false // Detener interacciones y movimiento inmediatamente
+        view.animate().cancel()
+        view.animate()
+            .alpha(0f)
+            .scaleX(0.5f)
+            .scaleY(0.5f)
+            .setDuration(300)
+            .withEndAction {
+                view.visibility = View.GONE
+            }
+            .start()
     }
 
     private fun startSmoothAnimation(params: WindowManager.LayoutParams) {
@@ -359,12 +509,42 @@ class PokemonOverlayService : Service(), SensorEventListener {
 
                 activeOverlay?.let { view ->
                     if (isVisible && !isPressed && SystemClock.uptimeMillis() > pauseUntil) {
+                        // Aplicar fricción (inercia)
+                        velX *= 0.985f
+                        velY *= 0.985f
+                        
+                        // Si se detiene casi por completo, retomar marcha automática suave
+                        if (Math.abs(velX) < 0.2f && Math.abs(velY) < 0.2f) {
+                            // Asignar una dirección aleatoria suave si se queda quieto
+                            if (random.nextFloat() < 0.02f) { // Probabilidad pequeña por frame para no saltar bruscamente
+                                velX = (random.nextFloat() * 2f - 1f) * 1.5f
+                                velY = (random.nextFloat() * 2f - 1f) * 1.5f
+                            }
+                        }
+
                         val currentVelX = if (isHatched) velX else velX / 3f
                         val currentVelY = if (isHatched) velY else velY / 3f
                         posX += currentVelX; posY += currentVelY
                         
-                        if (posX <= 0 || posX + view.width >= screenWidth) velX *= -1
-                        if (posY <= 100 || posY + view.height >= screenHeight - 100) velY *= -1
+                        val spriteW = (if (isHatched && movie != null) movie!!.width().toFloat() else 30f) * scaleFactor
+                        val paddingX = 10f * scaleFactor
+                        
+                        // Rebote en X basado en el sprite visible, no en el contenedor con padding
+                        if (posX + paddingX <= 0) {
+                            posX = -paddingX
+                            velX = Math.abs(velX)
+                        } else if (posX + paddingX + spriteW >= screenWidth) {
+                            posX = screenWidth - paddingX - spriteW
+                            velX = -Math.abs(velX)
+                        }
+
+                        if (posY <= 100) {
+                            posY = 100f
+                            velY = Math.abs(velY)
+                        } else if (posY + view.height >= screenHeight - 100) {
+                            posY = (screenHeight - 100 - view.height).toFloat()
+                            velY = -Math.abs(velY)
+                        }
                         
                         params.x = posX.toInt(); params.y = posY.toInt()
                         if (view.isAttachedToWindow) {

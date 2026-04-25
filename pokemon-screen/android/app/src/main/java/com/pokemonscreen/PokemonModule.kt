@@ -84,11 +84,12 @@ class PokemonModule(reactContext: ReactApplicationContext) : ReactContextBaseJav
             "bulbasaur", "ivysaur", "venusaur", "charmander", "charmeleon", "charizard", "squirtle", "wartortle", "blastoise", "caterpie", "metapod", "butterfree", "weedle", "kakuna", "beedrill", "pidgey", "pidgeotto", "pidgeot", "rattata", "raticate", "spearow", "fearow", "ekans", "arbok", "pikachu", "raichu", "sandshrew", "sandslash", "nidoran_f", "nidorina", "nidoqueen", "nidoran_m", "nidorino", "nidoking", "clefairy", "clefable", "vulpix", "ninetales", "jigglypuff", "wigglytuff", "zubat", "golbat", "oddish", "gloom", "vileplume", "paras", "parasect", "venonat", "venomoth", "diglett", "dugtrio", "meowth", "persian", "psyduck", "golduck", "mankey", "primeape", "growlithe", "arcanine", "poliwag", "poliwhirl", "poliwrath", "abra", "kadabra", "alakazam", "machop", "machoke", "machamp", "bellsprout", "weepinbell", "victreebel", "tentacool", "tentacruel", "geodude", "graveler", "golem", "ponyta", "rapidash", "slowpoke", "slowbro", "magnemite", "magneton", "farfetchd", "doduo", "dodrio", "seel", "dewgong", "grimer", "muk", "shellder", "cloyster", "gastly", "haunter", "gengar", "onix", "drowzee", "hypno", "krabby", "kingler", "voltorb", "electrode", "exeggcute", "exeggutor", "cubone", "marowak", "hitmonlee", "hitmonchan", "lickitung", "koffing", "weezing", "rhyhorn", "rhydon", "chansey", "tangela", "kangaskhan", "horsea", "seadra", "goldeen", "seaking", "staryu", "starmie", "mr_mime", "scyther", "jynx", "electabuzz", "magmar", "pinsir", "tauros", "magikarp", "gyarados", "lapras", "ditto", "eevee", "vaporeon", "jolteon", "flareon", "porygon", "omanyte", "omastar", "kabuto", "kabutops", "aerodactyl", "snorlax", "articuno", "zapdos", "moltres", "dratini", "dragonair", "dragonite", "mewtwo", "mew",
             "chikorita", "bayleef", "meganium", "cyndaquil", "quilava", "typhlosion", "totodile", "croconaw", "feraligatr", "sentret", "furret", "hoothoot", "noctowl", "ledyba", "ledian", "spinarak", "ariados", "crobat", "chinchou", "lanturn", "pichu", "cleffa", "igglybuff", "togepi", "togetic", "natu", "xatu", "mareep", "flaaffy", "ampharos", "bellossom", "marill", "azumarill", "sudowoodo", "politoed", "hoppip", "skiploom", "jumpluff", "aipom", "sunkern", "sunflora", "yanma", "wooper", "quagsire", "espeon", "umbreon", "murkrow", "slowking", "misdreavus", "unown", "wobbuffet", "girafarig", "pineco", "forretress", "dunsparce", "gligar", "steelix", "snubbull", "granbull", "qwilfish", "scizor", "shuckle", "heracross", "sneasel", "teddiursa", "ursaring", "slugma", "magcargo", "swinub", "piloswine", "corsola", "remoraid", "octillery", "delibird", "mantine", "skarmory", "houndour", "houndoom", "kingdra", "phanpy", "donphan", "porygon2", "stantler", "smeargle", "tyrogue", "hitmontop", "smoochum", "elekid", "magby", "miltank", "blissey", "raikou", "entei", "suicune", "larvitar", "pupitar", "tyranitar", "lugia", "ho_oh", "celebi"
         )
-        val items = setOf("Fire Stone", "Water Stone", "Thunder Stone", "Leaf Stone", "Moon Stone", "Sun Stone", "Metal Coat", "King's Rock", "Dragon Scale", "Up-Grade")
+        val items = setOf("Fire Stone", "Water Stone", "Thunder Stone", "Leaf Stone", "Moon Stone", "Sun Stone", "Metal Coat", "King's Rock", "Dragon Scale")
 
         prefs.edit().apply {
             putStringSet("owned_pokemon", allPokemon.toSet())
             putStringSet("inventory", items)
+            items.forEach { putInt("item_count_$it", 99) }
             putInt("global_candies", 999)
             // Marcar todos como eclosionados para poder verlos
             allPokemon.forEach { 
@@ -102,6 +103,27 @@ class PokemonModule(reactContext: ReactApplicationContext) : ReactContextBaseJav
     @ReactMethod
     fun getStats(promise: Promise) {
         val prefs = reactApplicationContext.getSharedPreferences("pokemon_prefs", Context.MODE_PRIVATE)
+        
+        // AUTO-STARTER: Si el usuario no tiene NADA, le damos un inicial aleatorio de las 3 regiones (en huevo)
+        val ownedSet = prefs.getStringSet("owned_pokemon", setOf()) ?: setOf()
+        if (ownedSet.isEmpty()) {
+            val starters = arrayOf(
+                "bulbasaur", "charmander", "squirtle", // Kanto
+                "chikorita", "cyndaquil", "totodile", // Johto
+                "treecko", "torchic", "mudkip"        // Hoenn
+            )
+            val starter = starters[Random().nextInt(starters.size)]
+
+            prefs.edit().apply {
+                putStringSet("owned_pokemon", setOf(starter))
+                putString("selectedPokemon", starter)
+                putBoolean("${starter}_isHatched", false)
+                putInt("${starter}_steps", 0)
+                putInt("${starter}_level", 1)
+                apply()
+            }
+        }
+
         val selected = prefs.getString("selectedPokemon", null)
         
         val map = Arguments.createMap()
@@ -118,7 +140,6 @@ class PokemonModule(reactContext: ReactApplicationContext) : ReactContextBaseJav
         map.putInt("eggsBought", prefs.getInt("eggsBought", 0))
         
         // Hatched Pokemon
-        val ownedSet = prefs.getStringSet("owned_pokemon", setOf()) ?: setOf()
         val hatchedArray = Arguments.createArray()
         ownedSet.filter { prefs.getBoolean("${it}_isHatched", false) }.forEach { hatchedArray.pushString(it) }
         map.putArray("ownedPokemon", hatchedArray)
@@ -135,7 +156,15 @@ class PokemonModule(reactContext: ReactApplicationContext) : ReactContextBaseJav
 
         val inventorySet = prefs.getStringSet("inventory", setOf()) ?: setOf()
         val inventoryArray = Arguments.createArray()
-        inventorySet.forEach { inventoryArray.pushString(it) }
+        inventorySet.forEach { itemName ->
+            val count = prefs.getInt("item_count_$itemName", 0)
+            if (count > 0) {
+                val itemMap = Arguments.createMap()
+                itemMap.putString("name", itemName)
+                itemMap.putInt("count", count)
+                inventoryArray.pushMap(itemMap)
+            }
+        }
         map.putArray("inventory", inventoryArray)
         
         promise.resolve(map)
@@ -171,7 +200,10 @@ class PokemonModule(reactContext: ReactApplicationContext) : ReactContextBaseJav
         currentOwned.add(newName)
 
         if (requiredItem != null) {
-            inventory.remove(requiredItem)
+            val currentCount = prefs.getInt("item_count_$requiredItem", 0)
+            if (currentCount > 0) {
+                prefs.edit().putInt("item_count_$requiredItem", currentCount - 1).apply()
+            }
         }
         
         val oldLevel = prefs.getInt("${oldName}_level", 1)
@@ -196,9 +228,11 @@ class PokemonModule(reactContext: ReactApplicationContext) : ReactContextBaseJav
 
         if (currentCandies >= cost) {
             inventory.add(itemName)
+            val currentCount = prefs.getInt("item_count_$itemName", 0)
             prefs.edit().apply {
                 putInt("global_candies", currentCandies - cost)
                 putStringSet("inventory", inventory)
+                putInt("item_count_$itemName", currentCount + 1)
                 apply()
             }
         }
@@ -223,6 +257,11 @@ class PokemonModule(reactContext: ReactApplicationContext) : ReactContextBaseJav
     @ReactMethod
     fun switchPokemon(pokemonName: String) {
         val prefs = reactApplicationContext.getSharedPreferences("pokemon_prefs", Context.MODE_PRIVATE)
+        
+        // Antes de cambiar, notificamos al servicio para que NO guarde sus datos antiguos
+        val stopIntent = Intent(reactApplicationContext, PokemonOverlayService::class.java)
+        reactApplicationContext.stopService(stopIntent)
+
         prefs.edit().putString("selectedPokemon", pokemonName).apply()
         summon()
     }

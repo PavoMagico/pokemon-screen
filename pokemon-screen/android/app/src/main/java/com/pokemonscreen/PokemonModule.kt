@@ -21,18 +21,48 @@ class PokemonModule(reactContext: ReactApplicationContext) : ReactContextBaseJav
 
     init {
         val filter = IntentFilter()
-        filter.addAction("com.pokemonscreen.UNLOCK_ALL")
-        filter.addAction("com.pokemonscreen.ADD_CANDIES")
+        filter.addAction("com.pokemonscreen.MANAGE_POKEMON")
         
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                if (intent?.action == "com.pokemonscreen.ADD_CANDIES") {
-                    val amount = intent.getIntExtra("amount", 50)
+                val action = intent?.action
+                if (action == "com.pokemonscreen.MANAGE_POKEMON") {
+                    val cmd = intent?.getStringExtra("cmd") ?: ""
+                    val species = intent?.getStringExtra("species")?.lowercase()
+                    val amount = intent?.getIntExtra("amount", 1) ?: 1
                     val prefs = reactContext.getSharedPreferences("pokemon_prefs", Context.MODE_PRIVATE)
-                    val current = prefs.getInt("global_candies", 0)
-                    prefs.edit().putInt("global_candies", current + amount).apply()
-                } else {
-                    unlockAllTest()
+                    
+                    when (cmd) {
+                        "add" -> {
+                            if (species != null) {
+                                val currentOwned = prefs.getStringSet("owned_pokemon", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+                                val pokedex = prefs.getStringSet("pokedex", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+                                
+                                currentOwned.add(species)
+                                pokedex.add(species)
+
+                                prefs.edit().apply {
+                                    putStringSet("owned_pokemon", currentOwned)
+                                    putStringSet("pokedex", pokedex)
+                                    putBoolean("${species}_isHatched", true)
+                                    putInt("${species}_level", amount)
+                                    putString("selectedPokemon", species)
+                                    apply()
+                                }
+                            }
+                        }
+                        "remove" -> {
+                            if (species != null) {
+                                val currentOwned = prefs.getStringSet("owned_pokemon", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+                                currentOwned.remove(species)
+                                prefs.edit().putStringSet("owned_pokemon", currentOwned).apply()
+                            }
+                        }
+                        "candies" -> {
+                            val current = prefs.getInt("global_candies", 0)
+                            prefs.edit().putInt("global_candies", current + amount).apply()
+                        }
+                    }
                 }
                 summon()
             }
@@ -103,16 +133,29 @@ class PokemonModule(reactContext: ReactApplicationContext) : ReactContextBaseJav
     @ReactMethod
     fun getStats(promise: Promise) {
         val prefs = reactApplicationContext.getSharedPreferences("pokemon_prefs", Context.MODE_PRIVATE)
-        
-        // AUTO-STARTER: Si el usuario no tiene NADA, le damos un inicial aleatorio de las 3 regiones (en huevo)
         val ownedSet = prefs.getStringSet("owned_pokemon", setOf()) ?: setOf()
+        val pokedexSet = prefs.getStringSet("pokedex", setOf())?.toMutableSet() ?: mutableSetOf()
+
+        // AUTO-REPAIR: Sincronizar Pokédex con los Pokémon ya obtenidos y eclosionados
+        var needsSync = false
+        ownedSet.forEach { pokemon ->
+            if (prefs.getBoolean("${pokemon}_isHatched", false) && !pokedexSet.contains(pokemon)) {
+                pokedexSet.add(pokemon)
+                needsSync = true
+            }
+        }
+        if (needsSync) {
+            prefs.edit().putStringSet("pokedex", pokedexSet).apply()
+        }
+        
+        // AUTO-STARTER: Si el usuario no tiene NADA
         if (ownedSet.isEmpty()) {
             val starters = arrayOf(
-                "bulbasaur", "charmander", "squirtle", // Kanto
-                "chikorita", "cyndaquil", "totodile", // Johto
-                "treecko", "torchic", "mudkip"        // Hoenn
+                "bulbasaur", "charmander", "squirtle",
+                "chikorita", "cyndaquil", "totodile",
+                "treecko", "torchic", "mudkip"
             )
-            val starter = starters[Random().nextInt(starters.size)]
+            val starter = starters.random()
 
             prefs.edit().apply {
                 putStringSet("owned_pokemon", setOf(starter))
@@ -138,6 +181,11 @@ class PokemonModule(reactContext: ReactApplicationContext) : ReactContextBaseJav
         
         map.putInt("candies", prefs.getInt("global_candies", 0))
         map.putInt("eggsBought", prefs.getInt("eggsBought", 0))
+
+        // Pokedex (All-time hatched)
+        val pokedexArray = Arguments.createArray()
+        pokedexSet.forEach { pokedexArray.pushString(it) }
+        map.putArray("pokedex", pokedexArray)
         
         // Hatched Pokemon
         val hatchedArray = Arguments.createArray()
@@ -195,9 +243,11 @@ class PokemonModule(reactContext: ReactApplicationContext) : ReactContextBaseJav
         val prefs = reactApplicationContext.getSharedPreferences("pokemon_prefs", Context.MODE_PRIVATE)
         val currentOwned = prefs.getStringSet("owned_pokemon", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
         val inventory = prefs.getStringSet("inventory", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+        val pokedex = prefs.getStringSet("pokedex", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
         
         currentOwned.remove(oldName)
         currentOwned.add(newName)
+        pokedex.add(newName)
 
         if (requiredItem != null) {
             val currentCount = prefs.getInt("item_count_$requiredItem", 0)
@@ -212,6 +262,7 @@ class PokemonModule(reactContext: ReactApplicationContext) : ReactContextBaseJav
             putString("selectedPokemon", newName)
             putStringSet("owned_pokemon", currentOwned)
             putStringSet("inventory", inventory)
+            putStringSet("pokedex", pokedex)
             putBoolean("${newName}_isHatched", true)
             putInt("${newName}_level", oldLevel)
             putInt("${newName}_steps", 0)
@@ -227,12 +278,16 @@ class PokemonModule(reactContext: ReactApplicationContext) : ReactContextBaseJav
         val inventory = prefs.getStringSet("inventory", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
 
         if (currentCandies >= cost) {
-            inventory.add(itemName)
-            val currentCount = prefs.getInt("item_count_$itemName", 0)
+            // Solo añadir al inventario si NO es un cargo de huevo
+            if (itemName != "Egg Charge") {
+                inventory.add(itemName)
+                val currentCount = prefs.getInt("item_count_$itemName", 0)
+                prefs.edit().putInt("item_count_$itemName", currentCount + 1).apply()
+            }
+            
             prefs.edit().apply {
                 putInt("global_candies", currentCandies - cost)
                 putStringSet("inventory", inventory)
-                putInt("item_count_$itemName", currentCount + 1)
                 apply()
             }
         }
@@ -255,8 +310,21 @@ class PokemonModule(reactContext: ReactApplicationContext) : ReactContextBaseJav
     }
 
     @ReactMethod
+    fun addCandies(amount: Int) {
+        val prefs = reactApplicationContext.getSharedPreferences("pokemon_prefs", Context.MODE_PRIVATE)
+        val current = prefs.getInt("global_candies", 0)
+        prefs.edit().putInt("global_candies", current + amount).apply()
+        summon()
+    }
+
+    @ReactMethod
     fun switchPokemon(pokemonName: String) {
         val prefs = reactApplicationContext.getSharedPreferences("pokemon_prefs", Context.MODE_PRIVATE)
+        val ownedSet = prefs.getStringSet("owned_pokemon", setOf()) ?: setOf()
+
+        if (!ownedSet.contains(pokemonName)) {
+            return
+        }
         
         // Antes de cambiar, notificamos al servicio para que NO guarde sus datos antiguos
         val stopIntent = Intent(reactApplicationContext, PokemonOverlayService::class.java)

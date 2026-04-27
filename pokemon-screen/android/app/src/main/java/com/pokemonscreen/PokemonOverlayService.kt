@@ -28,7 +28,6 @@ class PokemonOverlayService : Service(), SensorEventListener {
     private var isHatched = false
     private var level = 1
     private var selectedPokemon = "totodile"
-    private var candies = 0
     private var isVisible = true
     private var isPressed = false
     private var lastCryTime = 0L
@@ -36,8 +35,8 @@ class PokemonOverlayService : Service(), SensorEventListener {
     private val scaleFactor = 3.2f
 
     private var lastShakeTime: Long = 0
-    private val SHAKE_THRESHOLD = 11.0f
-    private val SHAKE_COOLDOWN = 300
+    private val SHAKE_THRESHOLD = 3.5f
+    private val SHAKE_COOLDOWN = 600
 
     private var posX = 0f
     private var posY = 500f
@@ -170,18 +169,14 @@ class PokemonOverlayService : Service(), SensorEventListener {
         currentSteps = prefs.getInt("${selectedPokemon}_steps", 0)
         level = prefs.getInt("${selectedPokemon}_level", 1)
         isHatched = prefs.getBoolean("${selectedPokemon}_isHatched", false)
-        candies = prefs.getInt("global_candies", 0)
     }
 
     private fun saveData() {
         val prefs = getSharedPreferences("pokemon_prefs", Context.MODE_PRIVATE)
-        // Cargamos los caramelos reales antes de guardar para no pisar cambios de la UI
-        val globalCandies = prefs.getInt("global_candies", candies)
         prefs.edit().apply {
             putInt("${selectedPokemon}_steps", currentSteps)
             putInt("${selectedPokemon}_level", level)
             putBoolean("${selectedPokemon}_isHatched", isHatched)
-            putInt("global_candies", globalCandies)
             apply()
         }
     }
@@ -204,16 +199,22 @@ class PokemonOverlayService : Service(), SensorEventListener {
 
     private fun addSteps(count: Int) {
         val prefs = getSharedPreferences("pokemon_prefs", Context.MODE_PRIVATE)
-        candies = prefs.getInt("global_candies", 0)
         
         val oldSteps = currentSteps
         currentSteps += count
         
         val newCandies = (currentSteps / stepsPerCandy) - (oldSteps / stepsPerCandy)
-        if (newCandies > 0) candies += newCandies
+        if (newCandies > 0) {
+            val currentCandies = prefs.getInt("global_candies", 0)
+            prefs.edit().putInt("global_candies", currentCandies + newCandies).apply()
+        }
 
         if (!isHatched && currentSteps >= 100) { 
             isHatched = true
+            val currentPokedex = prefs.getStringSet("pokedex", null)?.toMutableSet() ?: mutableSetOf()
+            currentPokedex.add(selectedPokemon)
+            prefs.edit().putStringSet("pokedex", currentPokedex).apply()
+
             triggerBurst()
             playCry()
         }
@@ -285,7 +286,10 @@ class PokemonOverlayService : Service(), SensorEventListener {
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or 
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED, // PERMITIR EN PANTALLA DE BLOQUEO
             PixelFormat.TRANSLUCENT
         )
         params.gravity = Gravity.TOP or Gravity.LEFT

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Dimensions, NativeModules, ScrollView, SafeAreaView, Image, FlatList, SectionList, Alert } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, Dimensions, NativeModules, ScrollView, SafeAreaView, Image, FlatList, SectionList, Alert, Modal } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
 const { PokemonModule } = NativeModules;
@@ -52,10 +52,13 @@ const I18N: any = {
       partner: "✨ Set a partner to see it on your screen!",
       actions: "👆 Tap your Pokémon to hear its cry. Long press or tap 5 times to unsummon.",
       evolve: "🧬 Level up and use items to evolve your team.",
-      bag: "🎒 Check your items in the Bag tab."
+      bag: "🎒 Check your items in the Bag tab.",
+      cheat: "Hacer trampas (2 🍬)"
     },
     empty_eggs: "No eggs yet!",
     empty_pokemon: "No Pokémon yet!",
+    empty_pool: "You already have all base Pokémon from this region!",
+    already_evolved: "You already have %s! Each species must be unique for now.",
     regions: { kanto: "KANTO", johto: "JOHTO", hoenn: "HOENN" },
     buy_candies: "BUY 50 CANDIES",
     ludopata_msg: "Don't be a gambling addict, for God's sake",
@@ -96,10 +99,13 @@ const I18N: any = {
       partner: "✨ ¡Elige un compañero para que aparezca en tu pantalla!",
       actions: "👆 Toca a tu Pokémon para oír su grito. Mantén pulsado o toca 5 veces para desinvocar.",
       evolve: "🧬 Sube de nivel y usa objetos para evolucionar a tu equipo.",
-      bag: "🎒 Revisa tus objetos en la pestaña Bolsa."
+      bag: "🎒 Revisa tus objetos en la pestaña Bolsa.",
+      cheat: "Hacer trampas (2 🍬)"
     },
     empty_eggs: "¡No tienes huevos!",
     empty_pokemon: "¡No tienes Pokémon!",
+    empty_pool: "¡Ya tienes todos los Pokémon base de esta región!",
+    already_evolved: "¡Ya tienes a %s! Por ahora no se permiten duplicados.",
     regions: { kanto: "KANTO", johto: "JOHTO", hoenn: "HOENN" },
     buy_candies: "COMPRAR 50 CARAMELOS",
     ludopata_msg: "No me seas ludópata por dios",
@@ -117,7 +123,7 @@ const I18N: any = {
   }
 };
 
-const EVO_MAP: { [key: string]: { next: string, level?: number, item?: string } } = {
+const EVO_MAP: { [key: string]: any } = {
   bulbasaur: { next: 'ivysaur', level: 16 }, ivysaur: { next: 'venusaur', level: 32 },
   charmander: { next: 'charmeleon', level: 16 }, charmeleon: { next: 'charizard', level: 36 },
   squirtle: { next: 'wartortle', level: 16 }, wartortle: { next: 'blastoise', level: 36 },
@@ -133,17 +139,28 @@ const EVO_MAP: { [key: string]: { next: string, level?: number, item?: string } 
   clefairy: { next: 'clefable', item: 'Moon Stone' }, vulpix: { next: 'ninetales', item: 'Fire Stone' },
   jigglypuff: { next: 'wigglytuff', item: 'Moon Stone' },
   zubat: { next: 'golbat', level: 22 }, golbat: { next: 'crobat', level: 40 },
-  oddish: { next: 'gloom', level: 21 }, gloom: { next: 'vileplume', item: 'Leaf Stone' },
+  oddish: { next: 'gloom', level: 21 },
+  gloom: [
+    { next: 'vileplume', item: 'Leaf Stone' },
+    { next: 'bellossom', item: 'Sun Stone' }
+  ],
   paras: { next: 'parasect', level: 24 }, venonat: { next: 'venomoth', level: 31 },
   diglett: { next: 'dugtrio', level: 26 }, meowth: { next: 'persian', level: 28 },
   psyduck: { next: 'golduck', level: 33 }, mankey: { next: 'primeape', level: 28 },
   growlithe: { next: 'arcanine', item: 'Fire Stone' }, poliwag: { next: 'poliwhirl', level: 25 },
-  poliwhirl: { next: 'poliwrath', item: 'Water Stone' }, abra: { next: 'kadabra', level: 16 },
+  poliwhirl: [
+    { next: 'poliwrath', item: 'Water Stone' },
+    { next: 'politoed', item: "King's Rock" }
+  ],
+  abra: { next: 'kadabra', level: 16 },
   kadabra: { next: 'alakazam', level: 36 }, machop: { next: 'machoke', level: 28 },
   machoke: { next: 'machamp', level: 40 }, bellsprout: { next: 'weepinbell', level: 21 },
   weepinbell: { next: 'victreebel', item: 'Leaf Stone' }, tentacool: { next: 'tentacruel', level: 30 },
   geodude: { next: 'graveler', level: 25 }, graveler: { next: 'golem', level: 40 },
-  ponyta: { next: 'rapidash', level: 40 }, slowpoke: { next: 'slowbro', level: 37 },
+  ponyta: { next: 'rapidash', level: 40 }, slowpoke: [
+    { next: 'slowbro', level: 37 },
+    { next: 'slowking', item: "King's Rock" }
+  ],
   magnemite: { next: 'magneton', level: 30 }, doduo: { next: 'dodrio', level: 31 },
   seel: { next: 'dewgong', level: 34 }, grimer: { next: 'muk', level: 38 },
   shellder: { next: 'cloyster', item: 'Water Stone' }, gastly: { next: 'haunter', level: 25 },
@@ -153,7 +170,14 @@ const EVO_MAP: { [key: string]: { next: string, level?: number, item?: string } 
   koffing: { next: 'weezing', level: 35 }, rhyhorn: { next: 'rhydon', level: 42 },
   horsea: { next: 'seadra', level: 32 }, seaking: { next: 'goldeen', level: 33 },
   staryu: { next: 'starmie', item: 'Water Stone' }, magikarp: { next: 'gyarados', level: 20 },
-  eevee: { next: 'vaporeon', item: 'Water Stone' }, omanyte: { next: 'omastar', level: 40 },
+  eevee: [
+    { next: 'vaporeon', item: 'Water Stone' },
+    { next: 'jolteon', item: 'Thunder Stone' },
+    { next: 'flareon', item: 'Fire Stone' },
+    { next: 'espeon', level: 25 },
+    { next: 'umbreon', level: 25 }
+  ],
+  omanyte: { next: 'omastar', level: 40 },
   kabuto: { next: 'kabutops', level: 40 }, dratini: { next: 'dragonair', level: 30 },
   dragonair: { next: 'dragonite', level: 55 },
 
@@ -166,7 +190,11 @@ const EVO_MAP: { [key: string]: { next: string, level?: number, item?: string } 
   magby: { next: 'magmar', level: 30 },
   azurill: { next: 'marill', level: 10 },
   wynaut: { next: 'wobbuffet', level: 15 },
-  tyrogue: { next: 'hitmontop', level: 20 },
+  tyrogue: [
+      { next: 'hitmonlee', level: 20 },
+      { next: 'hitmonchan', level: 20 },
+      { next: 'hitmontop', level: 20 }
+  ],
 
   chikorita: { next: 'bayleef', level: 16 }, bayleef: { next: 'meganium', level: 32 },
   cyndaquil: { next: 'quilava', level: 14 }, quilava: { next: 'typhlosion', level: 36 },
@@ -184,13 +212,17 @@ const EVO_MAP: { [key: string]: { next: string, level?: number, item?: string } 
   larvitar: { next: 'pupitar', level: 30 }, pupitar: { next: 'tyranitar', level: 55 },
   onix: { next: 'steelix', item: 'Metal Coat' },
   scyther: { next: 'scizor', item: 'Metal Coat' },
-  slowbro: { next: 'slowking', item: "King's Rock" },
   seadra: { next: 'kingdra', item: 'Dragon Scale' },
   treecko: { next: 'grovyle', level: 16 }, grovyle: { next: 'sceptile', level: 36 },
   torchic: { next: 'combusken', level: 16 }, combusken: { next: 'blaziken', level: 36 },
   mudkip: { next: 'marshtomp', level: 16 }, marshtomp: { next: 'swampert', level: 36 },
   poochyena: { next: 'mightyena', level: 18 }, zigzagoon: { next: 'linoone', level: 20 },
-  wurmple: { next: 'silcoon', level: 7 }, silcoon: { next: 'beautifly', level: 10 },
+  wurmple: [
+      { next: 'silcoon', level: 7 },
+      { next: 'cascoon', level: 7 }
+  ],
+  silcoon: { next: 'beautifly', level: 10 },
+  cascoon: { next: 'dustox', level: 10 },
   lotad: { next: 'lombre', level: 14 }, lombre: { next: 'ludicolo', item: 'Water Stone' },
   seedot: { next: 'nuzleaf', level: 14 }, nuzleaf: { next: 'shiftry', item: 'Leaf Stone' },
   taillow: { next: 'swellow', level: 22 }, wingull: { next: 'pelipper', level: 25 },
@@ -245,14 +277,14 @@ const getFamilyMembers = (base: string): string[] => {
 };
 
 // Identify base Pokémon for each region (those that aren't the 'next' stage of something else)
-const EVOLVED_NAMES = new Set([
-  ...Object.values(EVO_MAP).map(e => e.next),
-  'hitmonlee', 'hitmonchan', // Branching Tyrogue
-  'jolteon', 'flareon',       // Branching Eevee
-  'politoed', 'bellossom',    // Branching Poliwhirl/Gloom
-  'espeon', 'umbreon',        // Gen 2 Eeveelutions
-  'porygon2', 'slowking'      // Others
-]);
+const EVOLVED_NAMES = new Set(
+  Object.entries(EVO_MAP).flatMap(([prev, evo]) => {
+    const evos = Array.isArray(evo) ? evo : [evo];
+    return evos
+      .filter(e => POKE_IDS[prev] < POKE_IDS[e.next])
+      .map(e => e.next);
+  })
+);
 const KANTO_BASE = KANTO.filter(p => !EVOLVED_NAMES.has(p) && !LEGENDARY.includes(p));
 const JOHTO_BASE = JOHTO.filter(p => !EVOLVED_NAMES.has(p) && !LEGENDARY.includes(p));
 const HOENN_BASE = HOENN.filter(p => !EVOLVED_NAMES.has(p) && !LEGENDARY.includes(p));
@@ -283,7 +315,7 @@ const ItemGridItem = React.memo(({ item, t }: { item: any, t: any }) => {
     );
 });
 
-const PokemonGridItem = React.memo(({ item, isOwned, isSelected, onPress, isEgg }: { item: string | any; isOwned: boolean; isSelected: boolean; onPress: (name: string) => void; isEgg?: boolean }) => {
+const PokemonGridItem = React.memo(({ item, isOwned, isSelected, onPress, isEgg, isCurrentlyOwned }: { item: string | any; isOwned: boolean; isSelected: boolean; onPress: (name: string) => void; isEgg?: boolean, isCurrentlyOwned?: boolean }) => {
   const name = typeof item === 'string' ? item : item?.species;
   if (!name) return null;
   const displayName = isEgg ? "EGG" : (isOwned ? name.toUpperCase() : "???");
@@ -293,11 +325,18 @@ const PokemonGridItem = React.memo(({ item, isOwned, isSelected, onPress, isEgg 
       {isEgg ? (
         <Image source={ITEM_ICONS['Egg']} style={styles.eggIcon} resizeMode="contain" />
       ) : (
-        <Image
-            source={{ uri: getIconUri(name) }}
-            style={[styles.gridIcon, !isOwned && { opacity: 0.1, tintColor: '#000' }]}
-            resizeMode="contain"
-        />
+        <View>
+            <Image
+                source={{ uri: getIconUri(name) }}
+                style={[styles.gridIcon, !isOwned && { opacity: 0.1, tintColor: '#000' }]}
+                resizeMode="contain"
+            />
+            {isCurrentlyOwned && isOwned && (
+                <View style={styles.ownedBadge}>
+                    <Text style={styles.ownedBadgeText}>✔</Text>
+                </View>
+            )}
+        </View>
       )}
       <Text style={styles.gridName} numberOfLines={1}>{displayName}</Text>
     </TouchableOpacity>
@@ -323,7 +362,7 @@ const ItemShop = React.memo(({ candies, onBuy, t }: { candies: number, onBuy: (i
 
 const HeaderContent = React.memo(({
     stats, buyEgg, buyItem, levelUp, handleEvolve, activeTab, setActiveTab, canEvolve, alreadyHasEvo, evoInfo, lang, setLang, t,
-    canShowShinyToggle, showShinies, setShowShinies, pokedexRegion, setPokedexRegion, ownedSet, showTutorial, setShowTutorial
+    canShowShinyToggle, showShinies, setShowShinies, pokedexRegion, setPokedexRegion, ownedSet, pokedexSet, showTutorial, setShowTutorial
 }: any) => {
     if (!t) return null;
     return (
@@ -353,6 +392,14 @@ const HeaderContent = React.memo(({
                     <Text style={styles.tutorialText}>{t.tutorial.partner}</Text>
                     <Text style={styles.tutorialText}>{t.tutorial.actions}</Text>
                     <Text style={styles.tutorialText}>{t.tutorial.evolve}</Text>
+                    <TouchableOpacity
+                        onPress={() => {
+                            PokemonModule.addCandies(2);
+                        }}
+                        style={styles.cheatBtn}
+                    >
+                        <Text style={styles.cheatBtnText}>{t.tutorial.cheat}</Text>
+                    </TouchableOpacity>
                     <TouchableOpacity onPress={() => setShowTutorial(false)} style={styles.closeTutorial}>
                         <Text style={styles.closeTutorialText}>OK</Text>
                     </TouchableOpacity>
@@ -424,11 +471,11 @@ const HeaderContent = React.memo(({
 
                     <TouchableOpacity
                         style={[styles.miniActionBtn, (!canEvolve || !stats.selectedPokemon) && { opacity: 0.5, backgroundColor: '#334155' }]}
-                        onPress={handleEvolve}
+                        onPress={() => handleEvolve()}
                         disabled={!canEvolve}
                     >
                         <Text style={styles.btnTitle}>{alreadyHasEvo ? t.owned : (canEvolve ? t.evolve : t.locked)}</Text>
-                        <Text style={styles.btnDesc}>{evoInfo ? `LV. ${evoInfo.level}` : t.max}</Text>
+                        <Text style={styles.btnDesc}>{evoInfo ? (evoInfo.level ? `LV. ${evoInfo.level}` : (t.items[evoInfo.item] || evoInfo.item)) : t.max}</Text>
                     </TouchableOpacity>
                 </View>
             </View>
@@ -455,21 +502,21 @@ const HeaderContent = React.memo(({
                         onPress={() => setPokedexRegion('kanto')}
                     >
                         <Text style={[styles.regionSelectorText, pokedexRegion === 'kanto' && styles.regionSelectorTextActive]}>{t.regions.kanto}</Text>
-                        <Text style={styles.regionSelectorCount}>{KANTO.filter(p => ownedSet.has(p)).length}/{KANTO.length}</Text>
+                        <Text style={styles.regionSelectorCount}>{KANTO.filter(p => pokedexSet.has(p)).length}/{KANTO.length}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                         style={[styles.regionSelectorBtn, pokedexRegion === 'johto' && styles.regionSelectorBtnActive]}
                         onPress={() => setPokedexRegion('johto')}
                     >
                         <Text style={[styles.regionSelectorText, pokedexRegion === 'johto' && styles.regionSelectorTextActive]}>{t.regions.johto}</Text>
-                        <Text style={styles.regionSelectorCount}>{JOHTO.filter(p => ownedSet.has(p)).length}/{JOHTO.length}</Text>
+                        <Text style={styles.regionSelectorCount}>{JOHTO.filter(p => pokedexSet.has(p)).length}/{JOHTO.length}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                         style={[styles.regionSelectorBtn, pokedexRegion === 'hoenn' && styles.regionSelectorBtnActive]}
                         onPress={() => setPokedexRegion('hoenn')}
                     >
                         <Text style={[styles.regionSelectorText, pokedexRegion === 'hoenn' && styles.regionSelectorTextActive]}>{t.regions.hoenn}</Text>
-                        <Text style={styles.regionSelectorCount}>{HOENN.filter(p => ownedSet.has(p)).length}/{HOENN.length}</Text>
+                        <Text style={styles.regionSelectorCount}>{HOENN.filter(p => pokedexSet.has(p)).length}/{HOENN.length}</Text>
                     </TouchableOpacity>
                 </View>
             )}
@@ -489,19 +536,20 @@ const HeaderContent = React.memo(({
 });
 
 export default function HomeScreen() {
-  const [stats, setStats] = useState({ steps: 0, level: 1, isHatched: false, selectedPokemon: null, candies: 0, eggsBought: 0, ownedPokemon: [], eggs: [], inventory: [] });
+  const [stats, setStats] = useState({ steps: 0, level: 1, isHatched: false, selectedPokemon: null, candies: 0, eggsBought: 0, ownedPokemon: [], eggs: [], inventory: [], pokedex: [] });
   const [activeTab, setActiveTab] = useState<'eggs' | 'pokemon' | 'pokedex' | 'bag'>('eggs');
   const [lang, setLang] = useState<'en' | 'es'>('es');
   const [showShinies, setShowShinies] = useState(false);
   const [pokedexRegion, setPokedexRegion] = useState<'kanto' | 'johto' | 'hoenn'>('kanto');
   const [showTutorial, setShowTutorial] = useState(false);
+  const [showEvoModal, setShowEvoModal] = useState(false);
 
   const t = I18N[lang];
 
   const fetchStats = async () => {
     try {
       const data = await PokemonModule.getStats();
-      setStats({ ...data, ownedPokemon: data.ownedPokemon || [], eggs: data.eggs || [], inventory: data.inventory || [] });
+      setStats({ ...data, ownedPokemon: data.ownedPokemon || [], eggs: data.eggs || [], inventory: data.inventory || [], pokedex: data.pokedex || [] });
     } catch (e) { console.log(e); }
   };
 
@@ -520,17 +568,22 @@ export default function HomeScreen() {
   }, [stats.ownedPokemon, stats.eggs]);
 
   const ownedSet = useMemo(() => new Set(stats.ownedPokemon), [stats.ownedPokemon]);
+  const pokedexSet = useMemo(() => new Set(stats.pokedex), [stats.pokedex]);
 
   const handleGridPress = useCallback((name: string) => {
     const isActuallyOwned = ownedSet.has(name);
+    const isEgg = stats.eggs.some((e: any) => e.species === name);
+
     if (isActuallyOwned) PokemonModule.playCry(name);
 
-    // Check if it's an egg
-    const isEgg = stats.eggs.some((e: any) => e.species === name);
-    if (activeTab === 'pokedex' && !isActuallyOwned && !isEgg) return;
+    if (activeTab === 'pokedex') {
+      if (!pokedexSet.has(name)) return;
+      // Only allow switching if we currently possess it (as hatched or egg)
+      if (!isActuallyOwned && !isEgg) return;
+    }
 
     PokemonModule.switchPokemon(name);
-  }, [stats.eggs, ownedSet, activeTab]);
+  }, [stats.eggs, ownedSet, pokedexSet, activeTab]);
 
   const buyEgg = useCallback(async (type: 'random' | 'kanto' | 'johto' | 'hoenn') => {
     await PokemonModule.requestPermissions();
@@ -555,24 +608,72 @@ export default function HomeScreen() {
         await PokemonModule.buyItem("Egg Charge", cost);
         PokemonModule.setPokemon(picked);
         fetchStats();
+      } else {
+        Alert.alert(t.title, t.empty_pool);
       }
     }
-  }, [stats.candies, heldSpecies]);
+  }, [stats.candies, heldSpecies, t]);
 
-  const handleEvolve = useCallback(async () => {
+  const handleEvolve = useCallback(async (forcedEvo?: any) => {
     if (!stats.selectedPokemon) return;
-    const evo = EVO_MAP[stats.selectedPokemon];
-    if (!evo) return;
 
-    const inventoryItem = stats.inventory.find((i: any) => i.name === evo.item);
-    const hasItem = evo.item ? (inventoryItem && inventoryItem.count > 0) : true;
-    const hasLevel = evo.level ? stats.level >= evo.level : true;
-
-    if (hasItem && hasLevel && !heldSpecies.has(evo.next)) {
-      await PokemonModule.evolve(stats.selectedPokemon, evo.next, evo.item || null);
-      fetchStats();
+    if (!heldSpecies.has(stats.selectedPokemon)) {
+        Alert.alert(t.title, "No tienes este Pokémon actualmente.");
+        return;
     }
-  }, [stats.selectedPokemon, stats.inventory, stats.level, heldSpecies]);
+
+    const evoList = EVO_MAP[stats.selectedPokemon];
+    if (!evoList) return;
+
+    const options = Array.isArray(evoList) ? evoList : [evoList];
+
+    // Check if it was called by the button (which passes an event) or manually
+    const isManualSelection = forcedEvo && forcedEvo.next;
+
+    // If we have multiple options and none was chosen yet, show modal
+    if (options.length > 1 && !isManualSelection) {
+        setShowEvoModal(true);
+        return;
+    }
+
+    const possible = isManualSelection ? forcedEvo : options.find(evo => {
+        const inventoryItem = stats.inventory.find((i: any) => i.name === evo.item);
+        const hasItem = evo.item ? (inventoryItem && inventoryItem.count > 0) : true;
+        const hasLevel = evo.level ? stats.level >= evo.level : true;
+        return hasItem && hasLevel && !heldSpecies.has(evo.next);
+    });
+
+    if (possible) {
+        // Double check requirements if forced
+        const inventoryItem = stats.inventory.find((i: any) => i.name === possible.item);
+        const hasItem = possible.item ? (inventoryItem && inventoryItem.count > 0) : true;
+        const hasLevel = possible.level ? stats.level >= possible.level : true;
+
+        if (!hasItem || !hasLevel) {
+            const req = `${possible.level ? `LV. ${possible.level}` : ''}${possible.level && possible.item ? ' + ' : ''}${possible.item ? (t.items[possible.item] || possible.item) : ''}`;
+            Alert.alert(t.title, `Requirements not met: ${req}`);
+            return;
+        }
+
+        if (heldSpecies.has(possible.next)) {
+            Alert.alert(t.title, t.already_evolved.replace('%s', possible.next.toUpperCase()));
+            return;
+        }
+
+        await PokemonModule.evolve(stats.selectedPokemon, possible.next, possible.item || null);
+        setShowEvoModal(false);
+        fetchStats();
+    } else {
+        const alreadyHasAll = options.every(evo => heldSpecies.has(evo.next));
+        if (alreadyHasAll) {
+            Alert.alert(t.title, t.already_evolved.replace('%s', options[0].next.toUpperCase()));
+        } else {
+            const first = options[0];
+            const req = `${first.level ? `LV. ${first.level}` : ''}${first.level && first.item ? ' + ' : ''}${first.item ? (t.items[first.item] || first.item) : ''}`;
+            Alert.alert(t.title, `Requirements not met: ${req}`);
+        }
+    }
+  }, [stats.selectedPokemon, stats.inventory, stats.level, heldSpecies, t]);
 
   const buyItem = useCallback(async (item: { name: string, cost: number }) => {
     if (stats.candies >= item.cost) {
@@ -588,40 +689,64 @@ export default function HomeScreen() {
     }
   }, [stats.candies, stats.selectedPokemon]);
 
-  const evoInfo = useMemo(() => stats.selectedPokemon ? EVO_MAP[stats.selectedPokemon] : null, [stats.selectedPokemon]);
-  const alreadyHasEvo = useMemo(() => evoInfo && heldSpecies.has(evoInfo.next), [evoInfo, heldSpecies]);
-  const hasRequiredItem = useMemo(() => {
-      if (!evoInfo?.item) return true;
-      const item = stats.inventory.find((i: any) => i.name === evoInfo.item);
-      return item && item.count > 0;
-  }, [evoInfo, stats.inventory]);
-  const hasRequiredLevel = useMemo(() => evoInfo?.level ? stats.level >= evoInfo.level : true, [evoInfo, stats.level]);
-  const canEvolve = useMemo(() => evoInfo && hasRequiredItem && hasRequiredLevel && !alreadyHasEvo, [evoInfo, hasRequiredItem, hasRequiredLevel, alreadyHasEvo]);
+  const evoInfo = useMemo(() => {
+      if (!stats.selectedPokemon) return null;
+      const evoList = EVO_MAP[stats.selectedPokemon];
+      if (!evoList) return null;
+      const options = Array.isArray(evoList) ? evoList : [evoList];
+      // Return the first one that we don't have yet
+      return options.find(evo => !heldSpecies.has(evo.next)) || options[0];
+  }, [stats.selectedPokemon, heldSpecies]);
 
-  const isKantoComplete = useMemo(() => KANTO.length > 0 && KANTO.every(p => ownedSet.has(p)), [ownedSet]);
-  const isJohtoComplete = useMemo(() => JOHTO.length > 0 && JOHTO.every(p => ownedSet.has(p)), [ownedSet]);
-  const isHoennComplete = useMemo(() => HOENN.length > 0 && HOENN.every(p => ownedSet.has(p)), [ownedSet]);
+  const alreadyHasEvo = useMemo(() => {
+      if (!stats.selectedPokemon) return false;
+      const evoList = EVO_MAP[stats.selectedPokemon];
+      if (!evoList) return false;
+      const options = Array.isArray(evoList) ? evoList : [evoList];
+      return options.every(evo => heldSpecies.has(evo.next));
+  }, [stats.selectedPokemon, heldSpecies]);
+
+  const canEvolve = useMemo(() => {
+      if (!stats.selectedPokemon || !evoInfo || alreadyHasEvo) return false;
+      // Verification: do we actually OWN the selected pokemon?
+      if (!heldSpecies.has(stats.selectedPokemon)) return false;
+
+      const inventoryItem = stats.inventory.find((i: any) => i.name === evoInfo.item);
+      const hasItem = evoInfo.item ? (inventoryItem && inventoryItem.count > 0) : true;
+      const hasLevel = evoInfo.level ? stats.level >= evoInfo.level : true;
+      return hasItem && hasLevel;
+  }, [stats.selectedPokemon, evoInfo, alreadyHasEvo, stats.inventory, stats.level, heldSpecies]);
+
+  const isKantoComplete = useMemo(() => KANTO.length > 0 && KANTO.every(p => pokedexSet.has(p)), [pokedexSet]);
+  const isJohtoComplete = useMemo(() => JOHTO.length > 0 && JOHTO.every(p => pokedexSet.has(p)), [pokedexSet]);
+  const isHoennComplete = useMemo(() => HOENN.length > 0 && HOENN.every(p => pokedexSet.has(p)), [pokedexSet]);
 
   const canShowShinyToggle = (activeTab === 'pokedex') && (isKantoComplete || isJohtoComplete || isHoennComplete);
 
   const renderSingleItem = useCallback(({ item }: any) => {
-    const isActuallyHatched = ownedSet.has(item);
+    const isActuallyOwned = ownedSet.has(item);
+    const isDiscovered = pokedexSet.has(item);
+    const isEggInStats = stats.eggs.some((e: any) => e.species === item);
+    const isCurrentlyHeld = isActuallyOwned || isEggInStats;
+
+    const showAsUnlocked = activeTab === 'pokedex' ? isDiscovered : isActuallyOwned;
 
     let isSelected = stats.selectedPokemon === item;
-    if (activeTab === 'pokedex' && !isActuallyHatched) {
+    if (activeTab === 'pokedex' && !isCurrentlyHeld) {
       isSelected = false;
     }
 
     return (
       <PokemonGridItem
           item={item}
-          isOwned={isActuallyHatched}
+          isOwned={showAsUnlocked}
           isSelected={isSelected}
           onPress={handleGridPress}
           isEgg={activeTab === 'eggs'}
+          isCurrentlyOwned={isCurrentlyHeld}
       />
     );
-  }, [ownedSet, stats.selectedPokemon, activeTab, handleGridPress]);
+  }, [ownedSet, pokedexSet, stats.selectedPokemon, activeTab, handleGridPress, stats.eggs]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -640,7 +765,7 @@ export default function HomeScreen() {
                             lang={lang} setLang={setLang} t={t} canShowShinyToggle={canShowShinyToggle}
                             showShinies={showShinies} setShowShinies={setShowShinies}
                             pokedexRegion={pokedexRegion} setPokedexRegion={setPokedexRegion}
-                            ownedSet={ownedSet} showTutorial={showTutorial} setShowTutorial={setShowTutorial}
+                            ownedSet={ownedSet} pokedexSet={pokedexSet} showTutorial={showTutorial} setShowTutorial={setShowTutorial}
                         />
                     </View>
                 }
@@ -656,6 +781,36 @@ export default function HomeScreen() {
                 }
                 contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
             />
+
+            <Modal visible={showEvoModal} transparent animationType="slide">
+                <View style={styles.modalOverlay}>
+                    <View style={styles.evoModal}>
+                        <Text style={styles.modalTitle}>{t.evolve}</Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 15, paddingVertical: 10 }}>
+                            {stats.selectedPokemon && Array.isArray(EVO_MAP[stats.selectedPokemon]) && EVO_MAP[stats.selectedPokemon].map((evo: any) => {
+                                const hasReq = (evo.item ? stats.inventory.find((i: any) => i.name === evo.item)?.count > 0 : true) && (evo.level ? stats.level >= evo.level : true);
+                                const isOwned = heldSpecies.has(evo.next);
+                                return (
+                                    <TouchableOpacity
+                                        key={evo.next}
+                                        style={[styles.evoOption, (!hasReq || isOwned) && { opacity: 0.5 }]}
+                                        onPress={() => handleEvolve(evo)}
+                                    >
+                                        <Image source={{ uri: getIconUri(evo.next) }} style={styles.evoOptionIcon} />
+                                        <Text style={styles.evoOptionName}>{evo.next.toUpperCase()}</Text>
+                                        <Text style={styles.evoOptionReq}>
+                                            {isOwned ? t.owned : (evo.item ? (t.items[evo.item] || evo.item) : `LV. ${evo.level}`)}
+                                        </Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </ScrollView>
+                        <TouchableOpacity onPress={() => setShowEvoModal(false)} style={styles.closeModal}>
+                            <Text style={styles.closeModalText}>CANCEL</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
       </LinearGradient>
     </SafeAreaView>
   );
@@ -740,5 +895,18 @@ const styles = StyleSheet.create({
   tutorialTitle: { color: '#38bdf8', fontSize: 18, fontWeight: '900', marginBottom: 15, letterSpacing: 1 },
   tutorialText: { color: '#fff', fontSize: 12, marginBottom: 10, lineHeight: 18 },
   closeTutorial: { backgroundColor: '#38bdf8', paddingVertical: 8, paddingHorizontal: 20, borderRadius: 10, alignSelf: 'flex-end', marginTop: 5 },
-  closeTutorialText: { color: '#000', fontWeight: 'bold', fontSize: 12 }
+  closeTutorialText: { color: '#000', fontWeight: 'bold', fontSize: 12 },
+  cheatBtn: { backgroundColor: 'rgba(251,191,36,0.1)', paddingVertical: 8, paddingHorizontal: 15, borderRadius: 10, alignSelf: 'flex-start', marginTop: 10, borderWidth: 1, borderColor: '#fbbf24' },
+  cheatBtnText: { color: '#fbbf24', fontWeight: '900', fontSize: 11 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center' },
+  evoModal: { backgroundColor: '#1e293b', padding: 25, borderRadius: 30, width: '90%', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  modalTitle: { color: '#38bdf8', fontSize: 20, fontWeight: '900', marginBottom: 20, letterSpacing: 2 },
+  evoOption: { backgroundColor: 'rgba(255,255,255,0.05)', padding: 15, borderRadius: 20, alignItems: 'center', minWidth: 100, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
+  evoOptionIcon: { width: 60, height: 60 },
+  evoOptionName: { color: '#fff', fontSize: 10, fontWeight: '900', marginTop: 10 },
+  evoOptionReq: { color: '#fbbf24', fontSize: 9, fontWeight: 'bold', marginTop: 5 },
+  closeModal: { marginTop: 20, padding: 10 },
+  closeModalText: { color: '#64748b', fontSize: 12, fontWeight: 'bold' },
+  ownedBadge: { position: 'absolute', top: -5, right: -5, backgroundColor: '#10b981', borderRadius: 8, width: 14, height: 14, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#0f172a' },
+  ownedBadgeText: { color: '#fff', fontSize: 8, fontWeight: '900' }
 });

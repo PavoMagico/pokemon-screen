@@ -14,13 +14,10 @@ import Wallpaper from '../components/shared/Wallpaper';
 import CustomStatusBar from '../components/shared/CustomStatusBar';
 import { PokemonStatusHUD } from '../components/shared/HUD';
 
+import { POKE_IDS, getIconUri } from '../constants/pokemon';
+
 const { PokemonModule } = NativeModules;
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
-const POKE_IDS: { [key: string]: number } = {
-    zubat: 41, golbat: 42, slowpoke: 79, slowbro: 80, onix: 95, chansey: 113, horsea: 116, seadra: 117, scyther: 123, eevee: 133, vaporeon: 134, jolteon: 135, flareon: 136, porygon: 137,
-    chikorita: 152, bayleef: 153, meganium: 154, cyndaquil: 155, quilava: 156, typhlosion: 157, totodile: 158, croconaw: 159, feraligatr: 160, sentret: 161, furret: 162, hoothoot: 163, noctowl: 164, ledyba: 165, ledian: 166, spinarak: 167, ariados: 168, crobat: 169, chinchou: 170, lanturn: 171, pichu: 172, cleffa: 173, igglybuff: 174, togepi: 175, togetic: 176, natu: 177, xatu: 178, mareep: 179, flaaffy: 180, ampharos: 181, bellossom: 182, marill: 183, azumarill: 184, sudowoodo: 185, politoed: 186, hoppip: 187, skiploom: 188, jumpluff: 189, aipom: 190, sunkern: 191, sunflora: 192, yanma: 193, wooper: 194, quagsire: 195, espeon: 196, umbreon: 197, murkrow: 198, slowking: 199, misdreavus: 200, unown: 201, wobbuffet: 202, girafarig: 203, pineco: 204, forretress: 205, dunsparce: 206, gligar: 207, steelix: 208, snubbull: 209, granbull: 210, qwilfish: 211, scizor: 212, shuckle: 213, heracross: 214, sneasel: 215, teddiursa: 216, ursaring: 217, slugma: 218, magcargo: 219, swinub: 220, piloswine: 221, corsola: 222, remoraid: 223, octillery: 224, delibird: 225, mantine: 226, skarmory: 227, houndour: 228, houndoom: 229, kingdra: 230, phanpy: 231, donphan: 232, porygon2: 233, stantler: 234, smeargle: 235, tyrogue: 236, hitmontop: 237, smoochum: 238, elekid: 239, magby: 240, miltank: 241, blissey: 242, raikou: 243, entei: 244, suicune: 245, larvitar: 246, pupitar: 247, tyranitar: 248, lugia: 249, ho_oh: 250, celebi: 251, mamoswine: 473, togekiss: 468
-};
 
 const Ripple = ({ delay = 0 }: { delay?: number }) => {
   const scale = useSharedValue(0.4);
@@ -80,11 +77,6 @@ const CryScreen = () => {
       PokemonModule.playCry(stats.selectedPokemon);
     }
   }, [stats.isHatched, stats.selectedPokemon]);
-
-  const getIconUri = (name: string) => {
-    const id = POKE_IDS[name.toLowerCase()] || 158;
-    return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-vii/icons/${id}.png`;
-  };
 
   const bubbleStyle = useAnimatedStyle(() => ({
     transform: [{ scale: bubbleScale.value }, { translateY: bubbleTranslateY.value }],

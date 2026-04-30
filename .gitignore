@@ -1,0 +1,31 @@
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dependencies
+node_modules/
+pokemon-screen/node_modules/
+
+# Build artifacts
+pokemon-screen/android/app/build/
+pokemon-screen/android/build/
+pokemon-screen/ios/build/
+pokemon-screen/ios/Pods/
+
+# Environment
+.env
+.env.local
+pokemon-screen/.env
+pokemon-screen/.env.local
+
+# Expo
+pokemon-screen/.expo/
+
+# Logs
+*.log

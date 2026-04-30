@@ -1,14 +1,18 @@
-# Force binary files to be treated as such
-*.pbxproj -text
-*.gif binary
-*.jpg binary
-*.png binary
-
 # Mark native code and dependencies as vendored to clean up GitHub stats
 android/**/* linguist-vendored
 ios/**/* linguist-vendored
 node_modules/**/* linguist-vendored
+pokemon-screen/android/**/* linguist-vendored
+pokemon-screen/ios/**/* linguist-vendored
+pokemon-screen/node_modules/**/* linguist-vendored
+pokemon-screen-handoff/**/* linguist-vendored
 
 # Mark auto-generated files
 package-lock.json linguist-generated
 yarn.lock linguist-generated
+
+# Binary files
+*.gif binary
+*.jpg binary
+*.png binary
+*.webp binary

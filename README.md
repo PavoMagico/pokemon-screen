@@ -22,7 +22,7 @@ An Android overlay application that brings a Pokémon companion to your screen. 
     - **Summoning**: Long press or tap 5 times to unsummon; re-summon any time from the app.
 - **Collection**:
     - **Pokédex**: Track your progress across generations 1 to 3 (386 Pokémon).
-    - **Shiny Mode**: Complete a regional Pokédex to unlock the ability to see Shiny Pokémon!
+    - **Shiny Mode**: Complete a regional Pokédex to unlock the ability to see Shiny Pokémon! (in progress)
     - **Bag**: Manage your evolution items and candies.
 
 ---

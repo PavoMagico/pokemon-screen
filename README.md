@@ -1,93 +1,99 @@
 # Pokémon Screen
 
-Android live wallpaper app — a Pokémon sprite walks across your home screen and lock screen.
+An Android overlay application that brings a Pokémon companion to your screen. Your Pokémon walks, reacts, and grows with you as you move in real life.
 
 > Personal project. No commercial intent.
 
 ---
 
-## Features
+## 🌟 Features
 
-- 🐣 Start with an egg — hatch and raise your Pokémon
-- 🚶 Sprite walks continuously across home screen and lock screen
-- 💬 Cry animation triggered randomly or on tap
-- ⬆️ Level up via time, steps, and taps
-- 🔄 Evolves at standard Pokémon evolution thresholds
-- ⚙️ Toggle wallpaper: both screens / home only / lock only / off
+- **Floating Pokémon Overlay**: Your partner stays with you across the home screen, lock screen, and even other apps.
+- **Walking Mechanics**:
+    - **Step Tracking**: Earn 1 🍬 (Candy) every 50 steps.
+    - **Egg Hatching**: Start with an egg and walk 100 steps to hatch it.
+- **Growth & Evolution**:
+    - **Level Up**: Increase your Pokémon's level automatically through steps or manually using candies.
+    - **Evolution System**: Evolve your team once they reach the required level or by using special items (Fire Stone, Water Stone, etc.).
+    - **Regional Eggs**: Shop for specific eggs from Kanto, Johto, and Hoenn.
+- **Interactions**:
+    - **Cries**: Tap your Pokémon to hear its iconic cry.
+    - **Physics**: Drag and throw your Pokémon around the screen, or let it walk and bounce smoothly.
+    - **Summoning**: Long press or tap 5 times to unsummon; re-summon any time from the app.
+- **Collection**:
+    - **Pokédex**: Track your progress across generations 1 to 3 (386 Pokémon).
+    - **Shiny Mode**: Complete a regional Pokédex to unlock the ability to see Shiny Pokémon!
+    - **Bag**: Manage your evolution items and candies.
 
 ---
 
-## Tech Stack
+## 🛠 Tech Stack
 
 | Layer | Technology |
 |---|---|
-| Framework | Expo bare |
-| Language | TypeScript + React Native |
-| Backend/DB | Supabase |
-| Animations | React Native Reanimated |
-| Pedometer | Expo Pedometer |
-| Native module | Kotlin (Android Live Wallpaper Service) |
-| Build | EAS Build |
+| **Framework** | React Native (Expo Bare Workflow) |
+| **Language** | TypeScript + Kotlin |
+| **Backend/DB** | Supabase |
+| **Android Service** | Kotlin Overlay Service (`WindowManager`) |
+| **Animations** | Native GIF Rendering + Custom Physics Engine |
+| **Sensors** | Android Step Detector & Accelerometer |
 
 ---
 
-## Platform
+## 📱 Requirements
 
-- **Android** (primary) — Samsung Galaxy S23 Ultra
-- **iOS** (planned)
-
----
-
-## Project Status
-
-| Phase | Description | Status |
-|---|---|---|
-| 1 | Foundation — project setup, Supabase, Pokémon selection, sprite animation | 🟡 In progress |
-| 2 | Live Wallpaper — Kotlin native module, home/lock screen rendering | ⬜ Pending |
-| 3 | Progression — egg hatch, XP system, level up, evolution | ⬜ Pending |
-| 4 | Polish — full Pokédex, cry audio, notifications, iOS port | ⬜ Pending |
+- **Android**: Supports Android 8.0 (Oreo) and above (API 26+).
+- **Permissions**: Requires "Display over other apps" permission to function.
 
 ---
 
-## Getting Started
+## 🚀 Getting Started
 
 ### Prerequisites
 
-- Node.js
+- Node.js & npm
 - Android Studio + JDK 17
 - Expo CLI: `npm install -g expo-cli`
-- EAS CLI: `npm install -g eas-cli`
-- Supabase project
 
-### Install
+### Installation
 
+1. Clone the repository:
 ```bash
 git clone https://github.com/YOUR_USERNAME/pokemon-screen.git
 cd pokemon-screen
+```
+2. Install dependencies:
+```bash
 npm install
 ```
 
-### Run (development)
+### Environment Setup
 
-```bash
-npx expo run:android
-```
-
-> Expo Go not supported — requires custom native module.
-
----
-
-## Environment Variables
-
-Create a `.env` file at the root:
-
+Create a `.env` file in the root directory:
 ```env
 EXPO_PUBLIC_SUPABASE_URL=your_supabase_url
 EXPO_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
+### Running the App
+
+```bash
+npx expo run:android
+```
+*Note: Due to custom native modules (Overlay Service), this app cannot be run in Expo Go.*
+
 ---
 
-## License
+## 📊 Project Status
 
-Personal use only. Pokémon sprites © Nintendo / Game Freak.
+- [x] **Phase 1: Foundation**: Project setup, Supabase integration, and sprite rendering.
+- [x] **Phase 2: Overlay Service**: Kotlin native module for system-wide floating Pokémon.
+- [x] **Phase 3: Progression**: Egg hatching, step-to-candy conversion, leveling, and evolution.
+- [x] **Phase 4: Content**: Full Pokédex (Kanto, Johto, Hoenn), items shop, and shiny mode.
+- [ ] **Phase 5: Refinement**: Audio notifications, background sync improvements, and iOS port (Overlay not possible on iOS).
+
+---
+
+## ⚖️ License
+
+Personal use only. Pokémon and related assets are trademarks of Nintendo, Game Freak, and Creatures.

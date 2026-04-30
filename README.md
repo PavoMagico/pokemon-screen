@@ -89,8 +89,8 @@ npx expo run:android
 - [x] **Phase 1: Foundation**: Project setup, Supabase integration, and sprite rendering.
 - [x] **Phase 2: Overlay Service**: Kotlin native module for system-wide floating Pokémon.
 - [x] **Phase 3: Progression**: Egg hatching, step-to-candy conversion, leveling, and evolution.
-- [x] **Phase 4: Content**: Full Pokédex (Kanto, Johto, Hoenn), items shop, and shiny mode.
-- [ ] **Phase 5: Refinement**: Audio notifications, background sync improvements, and iOS port (Overlay not possible on iOS).
+- [x] **Phase 4: Content**: Full Pokédex (Kanto, Johto, Hoenn), items shop.
+- [ ] **Phase 5: Refinement**: Audio notifications, background sync improvements, shiny mode and iOS port (Overlay not possible on iOS).
 
 ---
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Dimensions, NativeModules, ScrollView, SafeAreaView, Image, FlatList, SectionList, Alert, Modal } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, Dimensions, NativeModules, ScrollView, SafeAreaView, Image, FlatList, SectionList, Alert, Modal, Linking } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { POKE_IDS, EVO_MAP, KANTO, JOHTO, HOENN, LEGENDARY, KANTO_BASE, JOHTO_BASE, HOENN_BASE, ALL_BASE, getIconUri, getAnimatedIconUri } from '../constants/pokemon';
 
@@ -17,6 +17,18 @@ const ITEM_ICONS: { [key: string]: any } = {
     'Dragon Scale': { uri: 'dragon_scale' },
     'Egg': { uri: 'pokemon_egg' }
 };
+
+const ITEMS = [
+    { name: 'Fire Stone', cost: 50 },
+    { name: 'Water Stone', cost: 50 },
+    { name: 'Thunder Stone', cost: 50 },
+    { name: 'Leaf Stone', cost: 50 },
+    { name: 'Moon Stone', cost: 50 },
+    { name: 'Sun Stone', cost: 50 },
+    { name: 'Metal Coat', cost: 100 },
+    { name: "King's Rock", cost: 100 },
+    { name: 'Dragon Scale', cost: 100 },
+];
 
 const I18N: any = {
   en: {
@@ -52,7 +64,7 @@ const I18N: any = {
     empty_pool: "You already have all base Pokémon from this region!",
     already_evolved: "You already have %s! Each species must be unique for now.",
     regions: { kanto: "KANTO", johto: "JOHTO", hoenn: "HOENN" },
-    buy_candies: "BUY 50 CANDIES",
+    buy_candies: "SUPPORT THE PROJECT",
     ludopata_msg: "Don't be a gambling addict, for God's sake",
     items: {
         'Fire Stone': 'Fire Stone',
@@ -99,7 +111,7 @@ const I18N: any = {
     empty_pool: "¡Ya tienes todos los Pokémon base de esta región!",
     already_evolved: "¡Ya tienes a %s! Por ahora no se permiten duplicados.",
     regions: { kanto: "KANTO", johto: "JOHTO", hoenn: "HOENN" },
-    buy_candies: "COMPRAR 50 CARAMELOS",
+    buy_candies: "APOYA EL PROYECTO",
     ludopata_msg: "No me seas ludópata por dios",
     items: {
         'Fire Stone': 'Piedra Fuego',
@@ -261,8 +273,8 @@ const HeaderContent = React.memo(({
 
             <View style={styles.shopContainer}>
                 <View style={styles.shopGrid}>
-                    <TouchableOpacity style={[styles.regionBtn, { minWidth: '100%', backgroundColor: '#334155' }]} onPress={() => Alert.alert("EPA!", t.ludopata_msg)}>
-                        <Text style={styles.btnTitleSmall}>✨ {t.buy_candies} ✨</Text>
+                    <TouchableOpacity style={[styles.regionBtn, { minWidth: '100%', backgroundColor: '#27272a' }]} onPress={() => Linking.openURL('https://ko-fi.com/pavomagico')}>
+                        <Text style={styles.btnTitleSmall}>☕ {t.buy_candies} ☕</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.regionBtn} onPress={() => buyEgg('random')}>
                         <Image source={ITEM_ICONS['Egg']} style={styles.eggBtnIcon} resizeMode="contain" />

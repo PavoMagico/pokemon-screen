@@ -128,6 +128,17 @@ export const EVO_MAP: { [key: string]: any } = {
   spheal: { next: 'sealeo', level: 32 }, sealeo: { next: 'walrein', level: 44 },
   bagon: { next: 'shelgon', level: 30 }, shelgon: { next: 'salamence', level: 50 },
   beldum: { next: 'metang', level: 20 }, metang: { next: 'metagross', level: 45 },
+  chansey: { next: 'blissey', level: 30 },
+  chinchou: { next: 'lanturn', level: 26 },
+  natu: { next: 'xatu', level: 25 },
+  teddiursa: { next: 'ursaring', level: 30 },
+  spoink: { next: 'grumpig', level: 32 },
+  feebas: { next: 'milotic', level: 30 },
+  snorunt: { next: 'glalie', level: 42 },
+  clamperl: [
+    { next: 'huntail', item: 'Water Stone' },
+    { next: 'gorebyss', item: 'Moon Stone' }
+  ],
 };
 
 export const LEGENDARY = ['articuno', 'zapdos', 'moltres', 'mewtwo', 'mew', 'raikou', 'entei', 'suicune', 'lugia', 'ho_oh', 'celebi', 'regirock', 'regice', 'registeel', 'latias', 'latios', 'kyogre', 'groudon', 'rayquaza', 'jirachi', 'deoxys'];
